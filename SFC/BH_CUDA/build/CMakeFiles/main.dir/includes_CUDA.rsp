@@ -1,0 +1,1 @@
+-I"/home/diegoh/tesis/Finales/N-Body/SFC/BH_CUDA/build/_deps/glm-src" -I"/home/diegoh/tesis/Finales/N-Body/SFC/BH_CUDA/build/_deps/glfw-src/include" -isystem /usr/include/opencv4

@@ -5,15 +5,11 @@
 #include <vector>
 #include <chrono>
 #include <algorithm>
-#include <cstdint>
 #include <opencv2/opencv.hpp>
-#include "err.h" // Debe contener la macro CHECK_CUDA_ERROR
+#include "err.h" // Asegúrate de tener este header con las macros de chequeo de errores CUDA
 
-//--------------------------------------------------
-// Constantes para simulación y visualización
-//--------------------------------------------------
 #define BLOCK_SIZE 256
-#define NUM_BODIES_DEFAULT 300
+#define NUM_BODIES 300
 #define WINDOW_WIDTH 1600
 #define WINDOW_HEIGHT 1600
 #define NBODY_WIDTH 10.0e11
@@ -31,17 +27,20 @@
 #define EARTH_MASS 5.974e24
 #define EARTH_DIA 12756
 
-//--------------------------------------------------
-// Video para almacenar la simulación
-//--------------------------------------------------
-cv::VideoWriter video("nbody3D.avi",
+// Parámetros para SFC
+#define MAX_BITS 21 // Máximo número de bits para SFC (ajustable según precisión necesaria)
+#define SFC_TYPE 0  // 0 = Morton, 1 = Hilbert
+
+// Video para almacenar las simulaciones
+// Nota: Se define globalmente para usarlo en storeFrame()
+cv::VideoWriter video("nbody3D_sfc.avi",
                       cv::VideoWriter::fourcc('M', 'J', 'P', 'G'),
                       30,
                       cv::Size(WINDOW_WIDTH, WINDOW_HEIGHT));
 
-//--------------------------------------------------
-// Definiciones de estructuras
-//--------------------------------------------------
+/**
+ * Estructura de 3 componentes (x, y, z).
+ */
 typedef struct
 {
     double x;
@@ -49,6 +48,9 @@ typedef struct
     double z;
 } Vector3;
 
+/**
+ * Estructura para un cuerpo (Body) en 3D.
+ */
 typedef struct
 {
     bool isDynamic;
@@ -57,11 +59,12 @@ typedef struct
     Vector3 position;
     Vector3 velocity;
     Vector3 acceleration;
+    unsigned long long sfcKey; // Clave SFC para ordenamiento
 } Body;
 
-//--------------------------------------------------
-// Funciones __device__ para la simulación
-//--------------------------------------------------
+/**
+ * Calcula la distancia 3D entre dos posiciones.
+ */
 __device__ double getDistance3D(const Vector3 &pos1, const Vector3 &pos2)
 {
     double dx = pos1.x - pos2.x;
@@ -70,16 +73,135 @@ __device__ double getDistance3D(const Vector3 &pos1, const Vector3 &pos2)
     return sqrt(dx * dx + dy * dy + dz * dz);
 }
 
+/**
+ * Determina si dos cuerpos colisionan en 3D (según la suma de sus radios y un umbral).
+ */
 __device__ bool isCollide(Body &b1, Body &b2)
 {
     double dist = getDistance3D(b1.position, b2.position);
     return (b1.radius + b2.radius + COLLISION_TH) > dist;
 }
 
+// Funciones para la curva de Morton (Z-order)
+
+/**
+ * Función para expandir un número entero intercalando ceros
+ */
+__host__ __device__ unsigned expandBits(unsigned v)
+{
+    v = (v * 0x00010001u) & 0xFF0000FFu;
+    v = (v * 0x00000101u) & 0x0F00F00Fu;
+    v = (v * 0x00000011u) & 0xC30C30C3u;
+    v = (v * 0x00000005u) & 0x49249249u;
+    return v;
+}
+
+/**
+ * Calcula el código Morton para 3D
+ */
+__host__ __device__ unsigned long long morton3D(unsigned x, unsigned y, unsigned z)
+{
+    unsigned long long answer = 0;
+    answer |= expandBits(x) | (expandBits(y) << 1) | (expandBits(z) << 2);
+    return answer;
+}
+
+// Funciones para la curva de Hilbert
+
+/**
+ * Calcula la posición en la curva de Hilbert 2D
+ */
+__host__ __device__ unsigned hilbert2D(unsigned x, unsigned y, unsigned bits)
+{
+    unsigned d = 0;
+    for (int s = bits - 1; s >= 0; s--)
+    {
+        unsigned rx = (x >> s) & 1;
+        unsigned ry = (y >> s) & 1;
+        d += (rx * 3) ^ ry;
+
+        if (ry == 0)
+        {
+            if (rx == 1)
+            {
+                x = (1 << s) - 1 - x;
+                y = (1 << s) - 1 - y;
+            }
+            unsigned t = x;
+            x = y;
+            y = t;
+        }
+
+        d = d << 2;
+    }
+    return d >> 2;
+}
+
+/**
+ * Calcula la posición en la curva de Hilbert 3D
+ * Nota: Esta es una versión simplificada que mapea (x,y,z) a un código Hilbert
+ */
+__host__ __device__ unsigned long long hilbert3D(unsigned x, unsigned y, unsigned z, unsigned bits)
+{
+    // Proyección híbrida: usamos un Hilbert 2D para (x,y) y luego combinamos con z
+    unsigned long long xy = hilbert2D(x, y, bits);
+    return (xy << bits) | z;
+}
+
+/**
+ * Calcula la clave SFC (Space-Filling Curve) para una posición 3D
+ */
+__host__ __device__ unsigned long long calculateSFCKey(const Vector3 &pos, int type)
+{
+    // Normalizar posiciones al rango [0, 2^MAX_BITS - 1]
+    double rangeX = NBODY_WIDTH * 2.0;
+    double rangeY = NBODY_HEIGHT * 2.0;
+    double rangeZ = MAX_DIST * 2.0;
+
+    double normalizedX = (pos.x + NBODY_WIDTH) / rangeX;
+    double normalizedY = (pos.y + NBODY_HEIGHT) / rangeY;
+    double normalizedZ = (pos.z + MAX_DIST) / rangeZ;
+
+    unsigned x = (unsigned)(normalizedX * ((1 << MAX_BITS) - 1));
+    unsigned y = (unsigned)(normalizedY * ((1 << MAX_BITS) - 1));
+    unsigned z = (unsigned)(normalizedZ * ((1 << MAX_BITS) - 1));
+
+    // Limitar a rango válido
+    x = min(x, (1u << MAX_BITS) - 1);
+    y = min(y, (1u << MAX_BITS) - 1);
+    z = min(z, (1u << MAX_BITS) - 1);
+
+    // Calcular clave según el tipo de curva
+    if (type == 0)
+    {
+        // Morton (Z-order)
+        return morton3D(x, y, z);
+    }
+    else
+    {
+        // Hilbert
+        return hilbert3D(x, y, z, MAX_BITS);
+    }
+}
+
+/**
+ * Actualiza las claves SFC para todos los cuerpos
+ */
+__global__ void updateSFCKeys(Body *bodies, int n, int type)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n)
+    {
+        bodies[i].sfcKey = calculateSFCKey(bodies[i].position, type);
+    }
+}
+
+/**
+ * Kernel que aplica el método Direct Sum en 3D usando tiling con ordenamiento SFC.
+ */
 __global__ void DirectSumTiledKernel3D(Body *bodies, int n)
 {
     __shared__ Body Bds[BLOCK_SIZE];
-
     int bx = blockIdx.x;
     int tx = threadIdx.x;
     int i = bx * blockDim.x + tx;
@@ -88,21 +210,24 @@ __global__ void DirectSumTiledKernel3D(Body *bodies, int n)
     {
         Body &bi = bodies[i];
         double fx = 0.0, fy = 0.0, fz = 0.0;
+        // Inicializamos la aceleración
         bi.acceleration = {0.0, 0.0, 0.0};
 
         for (int tile = 0; tile < gridDim.x; ++tile)
         {
+            // Copiamos un tile de cuerpos a memoria compartida
             int idx = tile * blockDim.x + tx;
             if (idx < n)
                 Bds[tx] = bodies[idx];
             __syncthreads();
 
+            // Procesamos cada elemento del tile
             for (int b = 0; b < BLOCK_SIZE; ++b)
             {
                 int j = tile * blockDim.x + b;
                 if (j < n)
                 {
-                    Body &bj = Bds[b];
+                    Body &bj = Bds[b]; // Acceso a la memoria compartida
                     if (!isCollide(bi, bj) && bi.isDynamic)
                     {
                         double rx = bj.position.x - bi.position.x;
@@ -118,130 +243,69 @@ __global__ void DirectSumTiledKernel3D(Body *bodies, int n)
             }
             __syncthreads();
         }
+
+        // Actualizamos la aceleración
         bi.acceleration.x += fx;
         bi.acceleration.y += fy;
         bi.acceleration.z += fz;
 
+        // Integramos velocidad
         bi.velocity.x += bi.acceleration.x * DT;
         bi.velocity.y += bi.acceleration.y * DT;
         bi.velocity.z += bi.acceleration.z * DT;
 
+        // Integramos posición
         bi.position.x += bi.velocity.x * DT;
         bi.position.y += bi.velocity.y * DT;
         bi.position.z += bi.velocity.z * DT;
     }
 }
 
-//--------------------------------------------------
-// Funciones para la visualización (host)
-//--------------------------------------------------
+/**
+ * Proyecta una posición 3D a 2D para dibujar en la ventana.
+ * En este ejemplo se ignora el eje Z (proyección ortográfica).
+ */
 cv::Point scaleToWindow(const Vector3 &pos3D)
 {
-    double scaleX = static_cast<double>(WINDOW_WIDTH) / (NBODY_WIDTH * 2.0);
-    double scaleY = static_cast<double>(WINDOW_HEIGHT) / (NBODY_HEIGHT * 2.0);
+    double scaleX = WINDOW_WIDTH / (NBODY_WIDTH * 2.0);
+    double scaleY = WINDOW_HEIGHT / (NBODY_HEIGHT * 2.0);
     double screenX = (pos3D.x + NBODY_WIDTH) * scaleX;
     double screenY = (pos3D.y + NBODY_HEIGHT) * scaleY;
-    return cv::Point(static_cast<int>(screenX), static_cast<int>(WINDOW_HEIGHT - screenY));
+    return cv::Point((int)screenX, (int)(WINDOW_HEIGHT - screenY));
 }
 
+/**
+ * Dibuja los cuerpos en una imagen y la escribe al video.
+ */
 void storeFrame(Body *bodies, int n, int id)
 {
     cv::Mat image = cv::Mat::zeros(WINDOW_HEIGHT, WINDOW_WIDTH, CV_8UC3);
+
+    // Colores según la posición en la curva SFC
     for (int i = 0; i < n; i++)
     {
         cv::Point center = scaleToWindow(bodies[i].position);
-        cv::circle(image, center, 1, cv::Scalar(255, 255, 255), -1);
+
+        // Color basado en la clave SFC (para visualizar el ordenamiento)
+        unsigned char r = (bodies[i].sfcKey) & 0xFF;
+        unsigned char g = (bodies[i].sfcKey >> 8) & 0xFF;
+        unsigned char b = (bodies[i].sfcKey >> 16) & 0xFF;
+
+        cv::circle(image, center, 1, cv::Scalar(b, g, r), -1);
     }
+
     video.write(image);
-    // Opcional: guardar frames individuales
-    // cv::imwrite("frame3D_" + std::to_string(id) + ".jpg", image);
-}
-
-//--------------------------------------------------
-// Funciones de ordenamiento SFC en el host
-//--------------------------------------------------
-
-// Esta función expande 21 bits de un entero a 63 bits intercalando ceros.
-uint64_t expandBits(uint32_t v)
-{
-    uint64_t x = v & 0x1fffff; // 21 bits
-    x = (x | x << 32) & 0x1f00000000ffffULL;
-    x = (x | x << 16) & 0x1f0000ff0000ffULL;
-    x = (x | x << 8) & 0x100f00f00f00f00fULL;
-    x = (x | x << 4) & 0x10c30c30c30c30c3ULL;
-    x = (x | x << 2) & 0x1249249249249249ULL;
-    return x;
-}
-
-// Calcula la clave Morton (Z-order) para un cuerpo.
-uint64_t computeMortonKey(const Body &b)
-{
-    double nx = (b.position.x + NBODY_WIDTH) / (2 * NBODY_WIDTH);
-    double ny = (b.position.y + NBODY_HEIGHT) / (2 * NBODY_HEIGHT);
-    double nz = (b.position.z + NBODY_WIDTH) / (2 * NBODY_WIDTH);
-    uint32_t ix = (uint32_t)(nx * ((1 << 21) - 1));
-    uint32_t iy = (uint32_t)(ny * ((1 << 21) - 1));
-    uint32_t iz = (uint32_t)(nz * ((1 << 21) - 1));
-    return (expandBits(ix) << 2) | (expandBits(iy) << 1) | (expandBits(iz));
-}
-
-// Hilbert curve auxiliaries
-static inline int rotateRight(int value, int shift)
-{
-    return ((value >> shift) | (value << (3 - shift))) & 7;
-}
-
-static inline int gray(int x)
-{
-    return x ^ (x >> 1);
+    // Para guardar frames individuales como imagen:
+    // cv::imwrite("frame3D_sfc_" + std::to_string(id) + ".jpg", image);
 }
 
 /**
- * Calcula el índice Hilbert en 3D a partir de coordenadas enteras.
- * Implementación basada en el algoritmo de John Skilling.
+ * Inicializa los cuerpos en 3D aleatoriamente alrededor de un centro.
  */
-uint64_t hilbert3D(uint32_t x, uint32_t y, uint32_t z, int bits)
-{
-    uint64_t H = 0;
-    int rotation = 0;
-    int mask = 1 << (bits - 1);
-    for (int i = 0; i < bits; i++)
-    {
-        int rx = (x & mask) ? 1 : 0;
-        int ry = (y & mask) ? 1 : 0;
-        int rz = (z & mask) ? 1 : 0;
-        int current = (rx << 2) | (ry << 1) | rz;
-        current = rotateRight(current, rotation);
-        H = (H << 3) | (current & 7);
-        rotation ^= gray(current);
-        mask >>= 1;
-    }
-    return H;
-}
-
-/**
- * Calcula la clave Hilbert para un cuerpo.
- */
-uint64_t computeHilbertKey(const Body &b)
-{
-    const int bits = 21; // número de bits por coordenada
-    double nx = (b.position.x + NBODY_WIDTH) / (2 * NBODY_WIDTH);
-    double ny = (b.position.y + NBODY_HEIGHT) / (2 * NBODY_HEIGHT);
-    double nz = (b.position.z + NBODY_WIDTH) / (2 * NBODY_WIDTH);
-    uint32_t ix = static_cast<uint32_t>(nx * ((1u << bits) - 1));
-    uint32_t iy = static_cast<uint32_t>(ny * ((1u << bits) - 1));
-    uint32_t iz = static_cast<uint32_t>(nz * ((1u << bits) - 1));
-    return hilbert3D(ix, iy, iz, bits);
-}
-
-//--------------------------------------------------
-// Inicializa los cuerpos de forma aleatoria en 3D
-//--------------------------------------------------
 Body *initRandomBodies3D(int n)
 {
     Body *bodies = new Body[n];
     srand(time(NULL));
-
     double maxDistance = MAX_DIST;
     double minDistance = MIN_DIST;
     Vector3 centerPos = {CENTERX, CENTERY, 0.0};
@@ -261,86 +325,132 @@ Body *initRandomBodies3D(int n)
         bodies[i].position = {x, y, z};
         bodies[i].velocity = {0.0, 0.0, 0.0};
         bodies[i].acceleration = {0.0, 0.0, 0.0};
+        bodies[i].sfcKey = 0; // Se calculará después
     }
+
     return bodies;
 }
 
-//--------------------------------------------------
-// MAIN
-//--------------------------------------------------
+/**
+ * Función auxiliar para setear un cuerpo concreto.
+ */
+void setBody(Body *bodies, int i,
+             bool isDynamic, double mass, double radius,
+             Vector3 position, Vector3 velocity, Vector3 acceleration)
+{
+    bodies[i].isDynamic = isDynamic;
+    bodies[i].mass = mass;
+    bodies[i].radius = radius;
+    bodies[i].position = position;
+    bodies[i].velocity = velocity;
+    bodies[i].acceleration = acceleration;
+    bodies[i].sfcKey = 0; // Se calculará después
+}
+
+/**
+ * Función de comparación para ordenar cuerpos según su clave SFC
+ */
+bool compareBodiesBySFC(const Body &a, const Body &b)
+{
+    return a.sfcKey < b.sfcKey;
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 4)
     {
-        std::cerr << "Uso: " << argv[0] << " <nBodies> <iters> <orderType>\n";
-        std::cerr << "   orderType: 0 = sin orden, 1 = Z-order (Morton), 2 = Hilbert\n";
+        std::cerr << "Uso: " << argv[0] << " <nBodies> <iters> <sfcType>\n";
+        std::cerr << "sfcType: 0=Morton, 1=Hilbert\n";
         return -1;
     }
 
     int nBodies = atoi(argv[1]);
     int iters = atoi(argv[2]);
-    int orderType = atoi(argv[3]); // 0: sin reordenar, 1: Morton, 2: Hilbert
+    int sfcType = atoi(argv[3]); // Tipo de curva SFC
 
-    int bytes = nBodies * sizeof(Body);
+    std::cout << "Usando ";
+    if (sfcType == 0)
+    {
+        std::cout << "curva de Morton (Z-order)";
+    }
+    else
+    {
+        std::cout << "curva de Hilbert";
+    }
+    std::cout << " para ordenamiento espacial." << std::endl;
 
-    // Inicializar cuerpos en el host
+    // Inicializamos cuerpos en el host
     Body *h_bodies = initRandomBodies3D(nBodies);
+    int bytes = nBodies * sizeof(Body);
 
     // Reservar memoria en la GPU
     Body *d_bodies;
     CHECK_CUDA_ERROR(cudaMalloc((void **)&d_bodies, bytes));
 
-    // Copiar datos iniciales al device
-    CHECK_CUDA_ERROR(cudaMemcpy(d_bodies, h_bodies, bytes, cudaMemcpyHostToDevice));
-
+    // Configuración del kernel
     int blockSize = BLOCK_SIZE;
     int gridSize = (nBodies + blockSize - 1) / blockSize;
 
-    std::cout << "iteration,totalIterationMs" << std::endl;
+    // Vector temporal para ordenamiento
+    std::vector<Body> sortedBodies(nBodies);
+
+    // Encabezado CSV para mediciones
+    std::cout << "iteration,sortTimeMs,computeTimeMs,totalTimeMs" << std::endl;
+
     using Clock = std::chrono::steady_clock;
     for (int it = 0; it < iters; it++)
     {
-        auto start = Clock::now();
+        auto startIteration = Clock::now();
 
-        // Lanza el kernel de Direct Sum con tiling
-        DirectSumTiledKernel3D<<<gridSize, blockSize>>>(d_bodies, nBodies);
-        CHECK_CUDA_ERROR(cudaDeviceSynchronize());
+        // 1. Calcular claves SFC y ordenar
+        auto startSort = Clock::now();
 
-        auto end = Clock::now();
-        double iterationTime = std::chrono::duration<double, std::milli>(end - start).count();
-        std::cout << it << "," << iterationTime << std::endl;
+        // Copiar cuerpos a la GPU
+        CHECK_CUDA_ERROR(cudaMemcpy(d_bodies, h_bodies, bytes, cudaMemcpyHostToDevice));
 
-        // Copiar resultados de la GPU al host para dibujar
+        // Calcular claves SFC para cada cuerpo
+        updateSFCKeys<<<gridSize, blockSize>>>(d_bodies, nBodies, sfcType);
+        cudaDeviceSynchronize();
+
+        // Copiar de vuelta al host para ordenar
         CHECK_CUDA_ERROR(cudaMemcpy(h_bodies, d_bodies, bytes, cudaMemcpyDeviceToHost));
-        storeFrame(h_bodies, nBodies, it);
 
-        // Si se seleccionó un ordenamiento SFC, reordena el arreglo de cuerpos en el host
-        if (orderType != 0)
-        {
-            std::vector<std::pair<uint64_t, Body>> keyed(nBodies);
-            for (int i = 0; i < nBodies; i++)
-            {
-                uint64_t key = (orderType == 1) ? computeMortonKey(h_bodies[i])
-                                                : computeHilbertKey(h_bodies[i]);
-                keyed[i] = std::make_pair(key, h_bodies[i]);
-            }
-            std::sort(keyed.begin(), keyed.end(),
-                      [](const std::pair<uint64_t, Body> &a, const std::pair<uint64_t, Body> &b)
-                      {
-                          return a.first < b.first;
-                      });
-            for (int i = 0; i < nBodies; i++)
-            {
-                h_bodies[i] = keyed[i].second;
-            }
-            // Copiar la versión reordenada de vuelta a la GPU
-            CHECK_CUDA_ERROR(cudaMemcpy(d_bodies, h_bodies, bytes, cudaMemcpyHostToDevice));
-        }
+        // Ordenar los cuerpos según su clave SFC
+        std::sort(h_bodies, h_bodies + nBodies, compareBodiesBySFC);
+
+        // Copiar los cuerpos ordenados de vuelta a la GPU
+        CHECK_CUDA_ERROR(cudaMemcpy(d_bodies, h_bodies, bytes, cudaMemcpyHostToDevice));
+
+        auto endSort = Clock::now();
+        double sortTime = std::chrono::duration<double, std::milli>(endSort - startSort).count();
+
+        // 2. Ejecutar simulación
+        auto startCompute = Clock::now();
+
+        // Lanza el kernel de simulación
+        DirectSumTiledKernel3D<<<gridSize, blockSize>>>(d_bodies, nBodies);
+        cudaDeviceSynchronize();
+
+        auto endCompute = Clock::now();
+        double computeTime = std::chrono::duration<double, std::milli>(endCompute - startCompute).count();
+
+        // Copiar resultados de la GPU al host para dibujar el frame
+        CHECK_CUDA_ERROR(cudaMemcpy(h_bodies, d_bodies, bytes, cudaMemcpyDeviceToHost));
+
+        auto endIteration = Clock::now();
+        double totalTime = std::chrono::duration<double, std::milli>(endIteration - startIteration).count();
+
+        // Registrar métricas
+        std::cout << it << "," << sortTime << "," << computeTime << "," << totalTime << std::endl;
+
+        // Almacenar el frame para visualización
+        storeFrame(h_bodies, nBodies, it);
     }
 
+    // Liberar recursos
     video.release();
     CHECK_CUDA_ERROR(cudaFree(d_bodies));
-    free(h_bodies);
+    delete[] h_bodies;
 
     return 0;
 }
