@@ -1,339 +1,511 @@
+#ifndef BARNES_HUT_KERNEL_
+#define BARNES_HUT_KERNEL_
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
 #include <iostream>
-#include <cmath>
-#include "barnes_hut_kernel.cuh"
-#include "constants.h"
-#include "err.h"
 #include <vector>
+#include "barnes_hut.cuh"
 
-BarnesHutCuda::BarnesHutCuda(int n) : nBodies(n)
+__global__ void ResetKernel(Node *node, int *mutex, int nNodes, int nBodies)
 {
-    nNodes = MAX_NODES;
-    leafLimit = MAX_NODES - N_LEAF;
-    h_b = new Body[nBodies];
-    h_node = new Node[nNodes];
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-    CHECK_CUDA_ERROR(cudaMalloc(&d_b, n * sizeof(Body)));
-    CHECK_CUDA_ERROR(cudaMalloc(&d_node, nNodes * sizeof(Node)));
-    CHECK_CUDA_ERROR(cudaMalloc(&d_mutex, nNodes * sizeof(int)));
-    CHECK_CUDA_ERROR(cudaMalloc(&d_b_buffer, n * sizeof(Body)));
-}
-
-BarnesHutCuda::~BarnesHutCuda()
-{
-    delete[] h_b;
-    delete[] h_node;
-    CHECK_CUDA_ERROR(cudaFree(d_b));
-    CHECK_CUDA_ERROR(cudaFree(d_node));
-    CHECK_CUDA_ERROR(cudaFree(d_mutex));
-    CHECK_CUDA_ERROR(cudaFree(d_b_buffer));
-}
-
-void BarnesHutCuda::resetCUDA()
-{
-    int blockSize = BLOCK_SIZE;
-    dim3 gridSize = ceil((float)nNodes / blockSize);
-    ResetKernel<<<gridSize, blockSize>>>(d_node, d_mutex, nNodes, nBodies);
-
-    // cudaDeviceSynchronize();
-
-    // // Verificar errores
-    // cudaError_t error = cudaGetLastError();
-    // if (error != cudaSuccess)
-    // {
-    //     printf("Error en ResetKernel: %s\n", cudaGetErrorString(error));
-    // }
-}
-
-void BarnesHutCuda::computeBoundingBoxCUDA()
-{
-    int blockSize = BLOCK_SIZE;
-    dim3 gridSize = ceil((float)nBodies / blockSize);
-    ComputeBoundingBoxKernel<<<gridSize, blockSize>>>(d_node, d_b, d_mutex, nBodies);
-
-    // cudaDeviceSynchronize();
-    // cudaError_t error = cudaGetLastError();
-    // if (error != cudaSuccess)
-    // {
-    //     printf("Error en ComputeBoundingBoxKernel: %s\n", cudaGetErrorString(error));
-    // }
-}
-
-void BarnesHutCuda::constructOctreeCUDA()
-{   
-    int blockSize = BLOCK_SIZE;
-    ConstructOctTreeKernel<<<1, blockSize>>>(d_node, d_b, d_b_buffer, 0, nNodes, nBodies, leafLimit);
-}
-
-void BarnesHutCuda::computeForceCUDA()
-{
-    int blockSize = 32;
-    dim3 gridSize = ceil((float)nBodies / blockSize);
-    ComputeForceKernel<<<gridSize, blockSize>>>(d_node, d_b, nNodes, nBodies, leafLimit);
-}
-
-void BarnesHutCuda::setBody(int i, bool isDynamic, double mass, double radius, Vector position, Vector velocity, Vector acceleration)
-{
-    h_b[i].isDynamic = isDynamic;
-    h_b[i].mass = mass;
-    h_b[i].radius = radius;
-    h_b[i].position = position;
-    h_b[i].velocity = velocity;
-    h_b[i].acceleration = acceleration;
-}
-
-Body *BarnesHutCuda::getBodies()
-{
-    return h_b;
-}
-
-void BarnesHutCuda::readDeviceBodies()
-{
-    // Copia de la información de los cuerpos de la GPU al host
-    CHECK_CUDA_ERROR(cudaMemcpy(h_b, d_b, sizeof(Body) * nBodies, cudaMemcpyDeviceToHost));
-}
-
-void BarnesHutCuda::setup(int sim)
-{
-    // Inicializa los cuerpos de manera aleatoria (excepto el sol)
-    initRandomBodies();
-
-    // Copia la información al dispositivo
-    CHECK_CUDA_ERROR(cudaMemcpy(d_b, h_b, sizeof(Body) * nBodies, cudaMemcpyHostToDevice));
-    CHECK_CUDA_ERROR(cudaMemcpy(d_node, h_node, sizeof(Node) * nNodes, cudaMemcpyHostToDevice));
-}
-
-// void BarnesHutCuda::update()
-// {
-//     resetCUDA();
-//     computeBoundingBoxCUDA();
-//     constructOctreeCUDA();
-//     computeForceCUDA();
-//     CHECK_LAST_CUDA_ERROR();
-// }
-
-UpdateTimes BarnesHutCuda::update()
-{
-    // Eventos para medir cada fase
-    cudaEvent_t startAll, afterReset, afterBBox, afterOctree, afterForce;
-    cudaEventCreate(&startAll);
-    cudaEventCreate(&afterReset);
-    cudaEventCreate(&afterBBox);
-    cudaEventCreate(&afterOctree);
-    cudaEventCreate(&afterForce);
-
-    // Marcar el inicio de todas las operaciones GPU de update()
-    cudaEventRecord(startAll);
-
-    // 1. resetCUDA()
-    resetCUDA();
-    cudaEventRecord(afterReset);
-
-    // 2. computeBoundingBoxCUDA()
-    computeBoundingBoxCUDA();
-    cudaEventRecord(afterBBox);
-
-    // 3. constructOctreeCUDA()
-    constructOctreeCUDA();
-    cudaEventRecord(afterOctree);
-
-    // 4. computeForceCUDA()
-    computeForceCUDA();
-    cudaEventRecord(afterForce);
-
-    // Sincronizar para asegurarnos de que los kernels terminaron
-    cudaEventSynchronize(afterForce);
-
-    // Calcular tiempos entre eventos (ms)
-    UpdateTimes times;
-    cudaEventElapsedTime(&times.resetTimeMs,   startAll,     afterReset);
-    cudaEventElapsedTime(&times.bboxTimeMs,    afterReset,   afterBBox);
-    cudaEventElapsedTime(&times.octreeTimeMs,  afterBBox,    afterOctree);
-    cudaEventElapsedTime(&times.forceTimeMs,   afterOctree,  afterForce);
-
-    // Liberar eventos
-    cudaEventDestroy(startAll);
-    cudaEventDestroy(afterReset);
-    cudaEventDestroy(afterBBox);
-    cudaEventDestroy(afterOctree);
-    cudaEventDestroy(afterForce);
-
-    // Chequeo de errores de CUDA (si corresponde)
-    CHECK_LAST_CUDA_ERROR();
-
-    // Retornar la estructura con los tiempos
-    return times;
-}
-
-void BarnesHutCuda::initRandomBodies()
-{
-    // Inicializar la semilla para números aleatorios
-    srand(time(NULL));
-
-    double maxDistance = MAX_DIST;
-    double minDistance = MIN_DIST;
-
-    Vector centerPos = {CENTERX, CENTERY, CENTERZ};
-
-    // Generar cuerpos (por ejemplo, planetas) de forma dinámica
-    for (int i = 0; i < nBodies; ++i)
+    if (idx < nNodes)
     {
-        // Generar dos números aleatorios uniformes entre 0 y 1
-        double u = rand() / (double)RAND_MAX; // Para theta
-        double v = rand() / (double)RAND_MAX; // Para phi
-
-        // Theta: ángulo en el plano XY (0 a 2π)
-        double theta = 2.0 * M_PI * u;
-        // Phi: ángulo desde el eje Z; para una distribución uniforme sobre la esfera,
-        // se usa phi = acos(2*v - 1)
-        double phi = acos(2.0 * v - 1.0);
-
-        // Generar un radio aleatorio entre minDistance y maxDistance
-        double radius = (maxDistance - minDistance) * (rand() / (double)RAND_MAX) + minDistance;
-
-        // Convertir de coordenadas esféricas a cartesianas:
-        double x = centerPos.x + radius * sin(phi) * cos(theta);
-        double y = centerPos.y + radius * sin(phi) * sin(theta);
-        double z = centerPos.z + radius * cos(phi);
-
-        Vector position = {x, y, z};
-
-        // Configurar el cuerpo (por ejemplo, un planeta) como dinámico
-        h_b[i].isDynamic    = true;
-        h_b[i].mass         = SUN_MASS;
-        h_b[i].radius       = SUN_DIA;
-        h_b[i].position     = position;
-        h_b[i].velocity     = {0.0, 0.0, 0.0};
-        h_b[i].acceleration = {0.0, 0.0, 0.0};
+        // Resetear nodo a valores iniciales
+        node[idx].topLeftFront = {INFINITY, INFINITY, INFINITY};
+        node[idx].botRightBack = {-INFINITY, -INFINITY, -INFINITY};
+        node[idx].centerMass = {0.0, 0.0, 0.0};
+        node[idx].totalMass = 0.0;
+        node[idx].isLeaf = true;
+        node[idx].start = -1;
+        node[idx].end = -1;
+        mutex[idx] = 0;
     }
-
-    // El último cuerpo se asigna como el sol (o cuerpo central)
-    // h_b[nBodies - 1].isDynamic    = false;
-    // h_b[nBodies - 1].mass         = SUN_MASS;
-    // h_b[nBodies - 1].radius       = SUN_DIA;
-    // h_b[nBodies - 1].position     = centerPos;
-    // h_b[nBodies - 1].velocity     = {0.0, 0.0, 0.0};
-    // h_b[nBodies - 1].acceleration = {0.0, 0.0, 0.0};
-}
-
-
-void BarnesHutCuda::debugPrintDeviceBodies()
-{
-    // Crear un vector temporal en host para almacenar los cuerpos.
-    std::vector<Body> tempBodies(nBodies);
-
-    // Copiar los cuerpos desde el dispositivo (d_b) al host.
-    cudaError_t err = cudaMemcpy(tempBodies.data(), d_b, nBodies * sizeof(Body), cudaMemcpyDeviceToHost);
-    if (err != cudaSuccess)
+    // El primer thread inicializa el nodo raíz
+    if (idx == 0)
     {
-        std::cerr << "Error al copiar cuerpos desde el dispositivo: "
-                  << cudaGetErrorString(err) << std::endl;
-        return;
-    }
-
-    std::cout << "===== Cuerpos en el Dispositivo =====" << std::endl;
-    for (int i = 0; i < nBodies; i++)
-    {
-        std::cout << "Cuerpo " << i << ":" << std::endl;
-        std::cout << "\tPosición: ("
-                  << tempBodies[i].position.x << ", "
-                  << tempBodies[i].position.y << ", "
-                  << tempBodies[i].position.z << ")" << std::endl;
-        std::cout << "\tVelocidad: ("
-                  << tempBodies[i].velocity.x << ", "
-                  << tempBodies[i].velocity.y << ", "
-                  << tempBodies[i].velocity.z << ")" << std::endl;
-        std::cout << "\tAceleración: ("
-                  << tempBodies[i].acceleration.x << ", "
-                  << tempBodies[i].acceleration.y << ", "
-                  << tempBodies[i].acceleration.z << ")" << std::endl;
-        std::cout << "\tMasa: " << tempBodies[i].mass
-                  << ", Radio: " << tempBodies[i].radius
-                  << ", Dinámico: " << (tempBodies[i].isDynamic ? "Sí" : "No")
-                  << std::endl;
+        node[0].start = 0;
+        node[0].end = nBodies - 1;
     }
 }
 
-//---------------------------------------------------------------------
-// Función: debugPrintTree()
-//---------------------------------------------------------------------
-// Copia el árbol Barnes-Hut (almacenado en d_node) desde la memoria
-// del dispositivo a una estructura temporal en el host y lo imprime.
-// Se asume que 'nNodes' contiene la cantidad de nodos creados y que
-// el nodo 0 corresponde a la raíz (con el bounding box global).
-//---------------------------------------------------------------------
-void BarnesHutCuda::debugPrintTree()
+__global__ void ComputeBoundingBoxKernel(Node *node, Body *bodies, int *mutex, int nBodies)
 {
-    if (nNodes <= 0)
+    // Memoria compartida para cada dimensión
+    __shared__ double topLeftFrontX[BLOCK_SIZE];
+    __shared__ double topLeftFrontY[BLOCK_SIZE];
+    __shared__ double topLeftFrontZ[BLOCK_SIZE];
+    __shared__ double botRightBackX[BLOCK_SIZE];
+    __shared__ double botRightBackY[BLOCK_SIZE];
+    __shared__ double botRightBackZ[BLOCK_SIZE];
+
+    int tx = threadIdx.x;
+    int b = blockIdx.x * blockDim.x + tx;
+
+    topLeftFrontX[tx] = INFINITY; // Para encontrar mínimo en X
+    topLeftFrontY[tx] = -INFINITY; // Para encontrar mínimo en Y
+    topLeftFrontZ[tx] = INFINITY; // Para encontrar mínimo en Z
+
+    botRightBackX[tx] = -INFINITY; // Para encontrar máximo en X
+    botRightBackY[tx] = INFINITY; // Para encontrar máximo en Y
+    botRightBackZ[tx] = -INFINITY; // Para encontrar máximo en Z
+    
+    __syncthreads();
+
+    // Cargar datos del cuerpo si está dentro del rango
+    if (b < nBodies)
     {
-        std::cout << "El árbol Barnes-Hut está vacío. nNodes = " << nNodes << std::endl;
-        return;
+        Body body = bodies[b];
+        topLeftFrontX[tx] = body.position.x;
+        topLeftFrontY[tx] = body.position.y;
+        topLeftFrontZ[tx] = body.position.z;
+
+        botRightBackX[tx] = body.position.x;
+        botRightBackY[tx] = body.position.y;
+        botRightBackZ[tx] = body.position.z;
     }
 
-    // Crear un vector temporal en host para almacenar los nodos del árbol.
-    std::vector<Node> tempNodes(nNodes);
-
-    // Copiar los nodos desde el dispositivo (d_node) al host.
-    cudaError_t err = cudaMemcpy(tempNodes.data(), d_node, nNodes * sizeof(Node), cudaMemcpyDeviceToHost);
-    if (err != cudaSuccess)
+    // Reducción para encontrar mínimos y máximos
+    for (int s = blockDim.x / 2; s > 0; s >>= 1)
     {
-        std::cerr << "Error al copiar nodos desde el dispositivo: "
-                  << cudaGetErrorString(err) << std::endl;
-        return;
-    }
-
-    // Obtener el arreglo de cuerpos del host.
-    Body *hostBodies = getBodies(); // Se asume que getBodies() devuelve el arreglo actualizado
-
-    std::cout << "===== Árbol Barnes-Hut =====" << std::endl;
-    std::cout << "Cantidad de nodos: " << nNodes << std::endl;
-
-    // Imprimir el bounding box global usando el nodo raíz (índice 0)
-    std::cout << "Bounding Box Global (nodo raíz):" << std::endl;
-    std::cout << "\tTop Left Front: ("
-              << tempNodes[0].topLeftFront.x << ", "
-              << tempNodes[0].topLeftFront.y << ", "
-              << tempNodes[0].topLeftFront.z << ")" << std::endl;
-    std::cout << "\tBot Right Back: ("
-              << tempNodes[0].botRightBack.x << ", "
-              << tempNodes[0].botRightBack.y << ", "
-              << tempNodes[0].botRightBack.z << ")" << std::endl;
-
-    // Recorrer e imprimir cada nodo
-    for (int i = 0; i < nNodes; i++)
-    {
-        std::cout << "Nodo " << i << ":" << std::endl;
-        std::cout << "\tTop Left Front: ("
-                  << tempNodes[i].topLeftFront.x << ", "
-                  << tempNodes[i].topLeftFront.y << ", "
-                  << tempNodes[i].topLeftFront.z << ")" << std::endl;
-        std::cout << "\tBot Right Back: ("
-                  << tempNodes[i].botRightBack.x << ", "
-                  << tempNodes[i].botRightBack.y << ", "
-                  << tempNodes[i].botRightBack.z << ")" << std::endl;
-        std::cout << "\tCentro de Masa: ("
-                  << tempNodes[i].centerMass.x << ", "
-                  << tempNodes[i].centerMass.y << ", "
-                  << tempNodes[i].centerMass.z << ")" << std::endl;
-        std::cout << "\tMasa Total: " << tempNodes[i].totalMass << std::endl;
-        std::cout << "\tEs Hoja: " << (tempNodes[i].isLeaf ? "Sí" : "No") << std::endl;
-        std::cout << "\tRango de cuerpos: inicio = " << tempNodes[i].start
-                  << ", fin = " << tempNodes[i].end << std::endl;
-
-        // Si el nodo es hoja y tiene un rango válido de cuerpos, imprimir los cuerpos contenidos.
-        if (tempNodes[i].isLeaf && tempNodes[i].start != -1 && tempNodes[i].end != -1)
+        __syncthreads();
+        if (tx < s)
         {
-            std::cout << "\tCuerpos en este nodo:" << std::endl;
-            for (int j = tempNodes[i].start; j <= tempNodes[i].end; j++)
+            // Encontrar mínimos para topLeftFront
+            topLeftFrontX[tx] = fminf(topLeftFrontX[tx], topLeftFrontX[tx + s]);
+            topLeftFrontY[tx] = fminf(topLeftFrontY[tx], topLeftFrontY[tx + s]);
+            topLeftFrontZ[tx] = fminf(topLeftFrontZ[tx], topLeftFrontZ[tx + s]);
+
+            // Encontrar máximos para botRightBack
+            botRightBackX[tx] = fmaxf(botRightBackX[tx], botRightBackX[tx + s]);
+            botRightBackY[tx] = fmaxf(botRightBackY[tx], botRightBackY[tx + s]);
+            botRightBackZ[tx] = fmaxf(botRightBackZ[tx], botRightBackZ[tx + s]);
+        }
+    }
+
+    // Actualización del nodo raíz con mutex
+    if (tx == 0)
+    {
+        while (atomicCAS(mutex, 0, 1) != 0)
+            ;
+        // Actualizar mínimos con margen
+        node[0].topLeftFront.x = fminf(node[0].topLeftFront.x, topLeftFrontX[0] - 1.0e10);
+        node[0].botRightBack.y = fmaxf(node[0].botRightBack.y, botRightBackY[0] - 1.0e10);
+        
+
+        node[0].topLeftFront.y = fminf(node[0].topLeftFront.y, topLeftFrontY[0] + 1.0e10);
+        node[0].botRightBack.x = fmaxf(node[0].botRightBack.x, botRightBackX[0] + 1.0e10);
+        
+        node[0].topLeftFront.z = fminf(node[0].topLeftFront.z, topLeftFrontZ[0] + 1.0e10);
+        node[0].botRightBack.z = fmaxf(node[0].botRightBack.z, botRightBackZ[0] - 1.0e10);
+
+        atomicExch(mutex, 0);
+    }
+}
+
+__device__ int getOctant(Vector topLeftFront, Vector botRightBack, double x, double y, double z)
+{
+    int octant = 1;
+    double midX = (topLeftFront.x + botRightBack.x) / 2;
+    double midY = (topLeftFront.y + botRightBack.y) / 2;
+    double midZ = (topLeftFront.z + botRightBack.z) / 2;
+
+    // El problema podría estar aquí en la asignación de octantes
+    if (x <= midX)
+    {
+        if (y >= midY)
+        {
+            if (z <= midZ)
+                octant = 1;
+            else
+                octant = 5;
+        }
+        else
+        {
+            if (z <= midZ)
+                octant = 3;
+            else
+                octant = 7;
+        }
+    }
+    else
+    {
+        if (y >= midY)
+        {
+            if (z <= midZ)
+                octant = 2;
+            else
+                octant = 6;
+        }
+        else
+        {
+            if (z <= midZ)
+                octant = 4;
+            else
+                octant = 8;
+        }
+    }
+    return octant;
+}
+
+__device__ void UpdateChildBound(Vector &tlf, Vector &brb, Node &childNode, int octant)
+{
+    double midX = (tlf.x + brb.x) / 2;
+    double midY = (tlf.y + brb.y) / 2;
+    double midZ = (tlf.z + brb.z) / 2;
+
+    switch (octant)
+    {
+    case 1: // top-left-front
+        childNode.topLeftFront = tlf;
+        childNode.botRightBack = {midX, midY, midZ};
+        break;
+    case 2: // top-right-front
+        childNode.topLeftFront = {midX, tlf.y, tlf.z};
+        childNode.botRightBack = {brb.x, midY, midZ};
+        break;
+    case 3: // bottom-left-front
+        childNode.topLeftFront = {tlf.x, midY, tlf.z};
+        childNode.botRightBack = {midX, brb.y, midZ};
+        break;
+    case 4: // bottom-right-front
+        childNode.topLeftFront = {midX, midY, tlf.z};
+        childNode.botRightBack = {brb.x, brb.y, midZ};
+        break;
+    case 5: // top-left-back
+        childNode.topLeftFront = {tlf.x, tlf.y, midZ};
+        childNode.botRightBack = {midX, midY, brb.z};
+        break;
+    case 6: // top-right-back
+        childNode.topLeftFront = {midX, tlf.y, midZ};
+        childNode.botRightBack = {brb.x, midY, brb.z};
+        break;
+    case 7: // bottom-left-back
+        childNode.topLeftFront = {tlf.x, midY, midZ};
+        childNode.botRightBack = {midX, brb.y, brb.z};
+        break;
+    case 8: // bottom-right-back
+        childNode.topLeftFront = {midX, midY, midZ};
+        childNode.botRightBack = brb;
+        break;
+    }
+}
+
+__device__ void warpReduce(volatile double *totalMass, volatile double3 *centerMass, int tx)
+{
+    totalMass[tx] += totalMass[tx + 32];
+    centerMass[tx].x += centerMass[tx + 32].x;
+    centerMass[tx].y += centerMass[tx + 32].y;
+    centerMass[tx].z += centerMass[tx + 32].z;
+
+    totalMass[tx] += totalMass[tx + 16];
+    centerMass[tx].x += centerMass[tx + 16].x;
+    centerMass[tx].y += centerMass[tx + 16].y;
+    centerMass[tx].z += centerMass[tx + 16].z;
+
+    totalMass[tx] += totalMass[tx + 8];
+    centerMass[tx].x += centerMass[tx + 8].x;
+    centerMass[tx].y += centerMass[tx + 8].y;
+    centerMass[tx].z += centerMass[tx + 8].z;
+
+    totalMass[tx] += totalMass[tx + 4];
+    centerMass[tx].x += centerMass[tx + 4].x;
+    centerMass[tx].y += centerMass[tx + 4].y;
+    centerMass[tx].z += centerMass[tx + 4].z;
+
+    totalMass[tx] += totalMass[tx + 2];
+    centerMass[tx].x += centerMass[tx + 2].x;
+    centerMass[tx].y += centerMass[tx + 2].y;
+    centerMass[tx].z += centerMass[tx + 2].z;
+
+    totalMass[tx] += totalMass[tx + 1];
+    centerMass[tx].x += centerMass[tx + 1].x;
+    centerMass[tx].y += centerMass[tx + 1].y;
+    centerMass[tx].z += centerMass[tx + 1].z;
+    // printf("Thread %d: totalMass = %f, centerMass = (%f, %f, %f)\n", tx, totalMass[tx], centerMass[tx].x, centerMass[tx].y, centerMass[tx].z);
+}
+
+__device__ void ComputeCenterMass(Node &curNode, Body *bodies, double *totalMass, double3 *centerMass, int start, int end)
+{
+    int tx = threadIdx.x;
+    int total = end - start + 1;
+    int sz = ceil((double)total / blockDim.x);
+    int s = tx * sz + start;
+    double M = 0.0;
+    double3 R = make_double3(0.0, 0.0, 0.0);
+
+    for (int i = s; i < s + sz; ++i)
+    {
+        if (i <= end)
+        {
+            Body &body = bodies[i];
+            M += body.mass;
+            R.x += body.mass * body.position.x;
+            R.y += body.mass * body.position.y;
+            R.z += body.mass * body.position.z;
+        }
+    }
+
+    totalMass[tx] = M;
+    centerMass[tx] = R;
+    // printf("Thread %d: totalMass = %f, centerMass = (%f, %f, %f)\n", tx, totalMass[tx], centerMass[tx].x, centerMass[tx].y, centerMass[tx].z);
+    for (unsigned int stride = blockDim.x / 2; stride > 32; stride >>= 1)
+    {
+        __syncthreads();
+        if (tx < stride)
+        {
+            totalMass[tx] += totalMass[tx + stride];
+            centerMass[tx].x += centerMass[tx + stride].x;
+            centerMass[tx].y += centerMass[tx + stride].y;
+            centerMass[tx].z += centerMass[tx + stride].z;
+        }
+    }
+
+    if (tx < 32)
+    {
+        warpReduce(totalMass, centerMass, tx);
+    }
+
+    __syncthreads();
+
+    if (tx == 0)
+    {
+        centerMass[0].x /= totalMass[0];
+        centerMass[0].y /= totalMass[0];
+        centerMass[0].z /= totalMass[0];
+        curNode.totalMass = totalMass[0];
+        curNode.centerMass = {centerMass[0].x, centerMass[0].y, centerMass[0].z};
+    }
+}
+
+__device__ void CountBodies(Body *bodies, Vector topLeftFront, Vector botRightBack, int *count, int start, int end, int nBodies)
+{
+    int tx = threadIdx.x;
+    if (tx < 8)
+        count[tx] = 0;
+    __syncthreads();
+
+    for (int i = start + tx; i <= end; i += blockDim.x)
+    {
+        Body body = bodies[i];
+        int oct = getOctant(topLeftFront, botRightBack, body.position.x, body.position.y, body.position.z);
+        atomicAdd(&count[oct - 1], 1);
+    }
+    __syncthreads();
+}
+
+__device__ void ComputeOffset(int *count, int start)
+{
+    int tx = threadIdx.x;
+    if (tx < 8)
+    {
+        int offset = start;
+        for (int i = 0; i < tx; ++i)
+        {
+            offset += count[i];
+        }
+        count[tx + 8] = offset;
+    }
+    __syncthreads();
+}
+
+__device__ void GroupBodies(Body *bodies, Body *buffer, Vector topLeftFront, Vector botRightBack, int *workOffset, int start, int end, int nBodies)
+{
+    for (int i = start + threadIdx.x; i <= end; i += blockDim.x)
+    {
+        Body body = bodies[i];
+        int oct = getOctant(topLeftFront, botRightBack, body.position.x, body.position.y, body.position.z);
+        int dest = atomicAdd(&workOffset[oct - 1], 1);
+        buffer[dest] = body;
+    }
+    __syncthreads();
+}
+
+// Kernel para construir el octree
+__global__ void ConstructOctTreeKernel(Node *node, Body *bodies, Body *buffer, int nodeIndex, int nNodes, int nBodies, int leafLimit)
+{
+    // Reservamos memoria compartida para 8 contadores y 8 offsets (total 16 enteros)
+    __shared__ int count[16]; // count[0..7]: cantidad de cuerpos por octante; count[8..15]: offsets base
+    __shared__ double totalMass[BLOCK_SIZE];
+    __shared__ double3 centerMass[BLOCK_SIZE];
+
+    int tx = threadIdx.x;
+    // Ajustar el índice del nodo según el bloque
+    nodeIndex += blockIdx.x;
+    if (nodeIndex >= nNodes)
+        return;
+
+    Node &curNode = node[nodeIndex];
+    int start = curNode.start;
+    int end = curNode.end;
+    Vector topLeftFront = curNode.topLeftFront;
+    Vector botRightBack = curNode.botRightBack;
+
+    if (start == -1 && end == -1)
+        return;
+
+    // Calcula el centro de masa para el nodo actual (actualiza curNode)
+    ComputeCenterMass(curNode, bodies, totalMass, centerMass, start, end);
+
+    // Si ya se alcanzó el límite de subdivisión o hay un único cuerpo, copiamos el bloque y retornamos
+    if (nodeIndex >= leafLimit || start == end)
+    {
+        for (int i = start; i <= end; ++i)
+        {
+            buffer[i] = bodies[i];
+        }
+        return;
+    }
+
+    // Paso 1: contar la cantidad de cuerpos en cada octante.
+    CountBodies(bodies, topLeftFront, botRightBack, count, start, end, nBodies);
+    // Paso 2: calcular los offsets base a partir de 'start'
+    ComputeOffset(count, start);
+
+    // Copiar los offsets base (calculados en count[8..15]) a un arreglo compartido para usarlos en la asignación de nodos hijos.
+    __shared__ int baseOffset[8];
+    __shared__ int workOffset[8]; // copia que se usará para las operaciones atómicas en GroupBodies
+    if (tx < 8)
+    {
+        baseOffset[tx] = count[tx + 8];  // guardar el offset original para el octante tx
+        workOffset[tx] = baseOffset[tx]; // inicializar la copia de trabajo
+    }
+    __syncthreads();
+
+    // Paso 3: agrupar cuerpos en el buffer según su octante, usando el arreglo workOffset.
+    GroupBodies(bodies, buffer, topLeftFront, botRightBack, workOffset, start, end, nBodies);
+
+    // Paso 4: asignar los rangos a los nodos hijos (únicamente en tx==0)
+    if (tx == 0)
+    {
+        // Para cada uno de los 8 octantes (i de 0 a 7)
+        for (int i = 0; i < 8; i++)
+        {
+            // El hijo correspondiente se ubica en: (nodeIndex * 8 + (i+1))
+            Node &childNode = node[nodeIndex * 8 + (i + 1)];
+            // Actualizar los límites (bounding box) del hijo
+            UpdateChildBound(topLeftFront, botRightBack, childNode, i + 1);
+            if (count[i] > 0)
             {
-                // Imprimir detalles básicos del cuerpo; puedes ampliar la información si lo deseas.
-                std::cout << "\t\tCuerpo " << j << ": Posición ("
-                          << hostBodies[j].position.x << ", "
-                          << hostBodies[j].position.y << ", "
-                          << hostBodies[j].position.z << ")";
-                std::cout << ", Masa " << hostBodies[j].mass;
-                std::cout << ", Radio " << hostBodies[j].radius;
-                std::cout << ", Dinámico: " << (hostBodies[j].isDynamic ? "Sí" : "No") << std::endl;
+                // Asignar el rango usando el offset base
+                childNode.start = baseOffset[i];
+                childNode.end = childNode.start + count[i] - 1;
             }
+            else
+            {
+                childNode.start = -1;
+                childNode.end = -1;
+            }
+        }
+
+        curNode.isLeaf = false;
+        // Lanzar la recursión para los hijos: se usan 8 bloques
+        ConstructOctTreeKernel<<<8, BLOCK_SIZE>>>(node, buffer, bodies, nodeIndex * 8 + 1, nNodes, nBodies, leafLimit);
+    }
+}
+
+__device__ double getDistance(Vector pos1, Vector pos2)
+{
+    return sqrt(pow(pos1.x - pos2.x, 2) + pow(pos1.y - pos2.y, 2) + pow(pos1.z - pos2.z, 2));
+}
+
+__device__ bool isCollide(Body &b1, Vector cm)
+{
+    double d = getDistance(b1.position, cm);
+    double threshold = b1.radius * 2 + COLLISION_TH;
+    return threshold > d;
+}
+
+__device__ void ComputeForce(Node *node, Body *bodies, int nodeIndex, int bodyIndex,
+                             int nNodes, int nBodies, int leafLimit, double width)
+{
+    if (nodeIndex >= nNodes)
+        return;
+
+    Node curNode = node[nodeIndex];
+    Body bi = bodies[bodyIndex];
+    
+    if (curNode.isLeaf)
+    {   
+        if (curNode.centerMass.x != -1 && !isCollide(bi, curNode.centerMass))
+        {
+            Vector rij = {
+                curNode.centerMass.x - bi.position.x,
+                curNode.centerMass.y - bi.position.y,
+                curNode.centerMass.z - bi.position.z};
+            // Calcular r² sin suavizado
+            double r2 = (rij.x * rij.x) + (rij.y * rij.y) + (rij.z * rij.z);
+            // Usar la fórmula: (r^2 + E^2)^(3/2)
+            double r = sqrt(r2 + (E * E));
+            double f = (GRAVITY * bi.mass * curNode.totalMass) / (r * r * r + (E * E));
+            Vector force = {rij.x * f, rij.y * f, rij.z * f};
+
+            bodies[bodyIndex].acceleration.x += (force.x / bi.mass);
+            bodies[bodyIndex].acceleration.y += (force.y / bi.mass);
+            bodies[bodyIndex].acceleration.z += (force.z / bi.mass);
+        }
+        return;
+    }
+
+    // Caso de aproximación multipolo
+    double distance = getDistance(bi.position, curNode.centerMass);
+    double sd = width / distance; // TAMANIO DE LA REGION / DISTANCIA, kd-tree
+    if (sd < THETA)
+    {
+        if (!isCollide(bi, curNode.centerMass))
+        {
+            Vector rij = {
+                curNode.centerMass.x - bi.position.x,
+                curNode.centerMass.y - bi.position.y,
+                curNode.centerMass.z - bi.position.z};
+
+            double r2 = (rij.x * rij.x) + (rij.y * rij.y) + (rij.z * rij.z);
+            double r = sqrt(r2 + (E * E));
+            double f = (GRAVITY * bi.mass * curNode.totalMass) / (r * r * r + (E * E));
+            Vector force = {rij.x * f, rij.y * f, rij.z * f};
+
+            bodies[bodyIndex].acceleration.x += (force.x / bi.mass);
+            bodies[bodyIndex].acceleration.y += (force.y / bi.mass);
+            bodies[bodyIndex].acceleration.z += (force.z / bi.mass);
+        }
+        return;
+    }
+
+    // Si no se cumple la condición de aproximación, se recorre recursivamente a los 8 hijos.
+    for (int i = 1; i <= 8; i++)
+    {
+        ComputeForce(node, bodies, (nodeIndex * 8) + i, bodyIndex, nNodes, nBodies, leafLimit, width / 2);
+    }
+}
+
+__global__ void ComputeForceKernel(Node *node, Body *bodies, int nNodes, int nBodies, int leafLimit)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    double width = node[0].botRightBack.x - node[0].topLeftFront.x;
+    if (i < nBodies)
+    {
+        Body &bi = bodies[i];
+        if (bi.isDynamic)
+        {
+            // Reiniciar la aceleración
+            bi.acceleration = {0.0, 0.0, 0.0};
+
+            // Compute the force recursively
+            ComputeForce(node, bodies, 0, i, nNodes, nBodies, leafLimit, width);
+
+            // Update velocity and position with integration (Euler)
+            bi.velocity.x += bi.acceleration.x * DT;
+            bi.velocity.y += bi.acceleration.y * DT;
+            bi.velocity.z += bi.acceleration.z * DT;
+
+            bi.position.x += bi.velocity.x * DT;
+            bi.position.y += bi.velocity.y * DT;
+            bi.position.z += bi.velocity.z * DT;
+
         }
     }
 }
+
+#endif
