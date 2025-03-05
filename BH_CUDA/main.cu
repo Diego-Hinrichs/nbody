@@ -1,28 +1,43 @@
-/*
-   Copyright 2023 Hsin-Hung Wu
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
-*/
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <iostream>
 #include <vector>
+#include <opencv2/opencv.hpp>
 #include <chrono>
-#include "barnesHutCuda.cuh"
+#include "barnes_hut.cuh"
 #include "constants.h"
 
+
+cv::VideoWriter video("BH_CUDA.avi",
+    cv::VideoWriter::fourcc('M', 'J', 'P', 'G'),
+    30,
+    cv::Size(WINDOW_WIDTH, WINDOW_HEIGHT));
+
+cv::Point scaleToWindow(const Vector &pos3D)
+{
+    double scaleX = WINDOW_WIDTH / (NBODY_WIDTH * 2.0);
+    double scaleY = WINDOW_HEIGHT / (NBODY_HEIGHT * 2.0);
+    double screenX = (pos3D.x + NBODY_WIDTH) * scaleX;
+    double screenY = (pos3D.y + NBODY_HEIGHT) * scaleY;
+    return cv::Point((int)screenX, (int)(WINDOW_HEIGHT - screenY));
+}
+
+/**
+ * Dibuja los cuerpos en una imagen y la escribe al video.
+ */
+void storeFrame(Body *bodies, int n, int id)
+{
+    cv::Mat image = cv::Mat::zeros(WINDOW_HEIGHT, WINDOW_WIDTH, CV_8UC3);
+    for (int i = 0; i < n; i++)
+    {
+        cv::Point center = scaleToWindow(bodies[i].position);
+        cv::circle(image, center, 1, cv::Scalar(255, 255, 255), -1);
+    }
+    video.write(image);
+    // Para guardar frames individuales como imagen:
+    // cv::imwrite("frame3D_" + std::to_string(id) + ".jpg", image);
+}
 
 int main(int argc, char **argv)
 {
@@ -38,10 +53,6 @@ int main(int argc, char **argv)
     // Imprimir el encabezado CSV (por ejemplo):
     std::cout << "iteration"
               << ",totalIterationMs"
-              //   << ",resetTimeMs"
-              //   << ",bboxTimeMs"
-              //   << ",octreeTimeMs"
-              //   << ",forceTimeMs"
               << std::endl;
 
     // Bucle de iteraciones
@@ -63,12 +74,12 @@ int main(int argc, char **argv)
         std::cout << i << ","      // Índice de la iteración
                   << iterationTime // ms totales (CPU + GPU)
                   << std::endl;
-        //   << kernelTimes.resetTimeMs << ","
-        //   << kernelTimes.bboxTimeMs << ","
-        //   << kernelTimes.octreeTimeMs << ","
-        //   << kernelTimes.forceTimeMs
+        
+        bh->readDeviceBodies();
+        storeFrame(bh->getBodies(), nBodies, i);
     }
 
+    video.release();
     delete bh;
 
     return 0;

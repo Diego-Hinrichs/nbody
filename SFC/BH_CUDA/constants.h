@@ -18,8 +18,8 @@
 #define CONSTANTS_H
 
 #define HBL 1.6e29
-#define WINDOW_WIDTH 1024
-#define WINDOW_HEIGHT 1024
+#define WINDOW_WIDTH 2048
+#define WINDOW_HEIGHT 2048
 #define NBODY_WIDTH 10.0e11
 #define NBODY_HEIGHT 10.0e11
 // Parámetros de la simulación

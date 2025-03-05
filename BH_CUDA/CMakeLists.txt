@@ -7,8 +7,8 @@ add_executable(${PROJECT_NAME})
 # file(GLOB SOURCES *.cpp *.h *.cu *.cuh)
 target_sources(${PROJECT_NAME} PRIVATE
     main.cu
-    barnesHutCuda.cu
-    barnesHut_kernel.cu
+    barnes_hut.cu
+    barnes_hut_kernel.cu
 )
 
 find_package(OpenCV REQUIRED)
