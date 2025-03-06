@@ -37,6 +37,7 @@ FetchContent_MakeAvailable(glfw glm)
 
 # Locate CUDA kernel source files
 file(GLOB CUDA_KERNEL_SOURCES 
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ui/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/simulation/*.cu
     ${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/*.cu
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sfc/*.cu
@@ -45,7 +46,7 @@ file(GLOB CUDA_KERNEL_SOURCES
 
 # Add executable
 add_executable(BarnesHutSimulation 
-    src/main.cu
+    src/main.cpp
     ${CUDA_KERNEL_SOURCES}
 )
 
@@ -58,6 +59,7 @@ set_target_properties(BarnesHutSimulation PROPERTIES
 # Include directories
 target_include_directories(BarnesHutSimulation PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/ui  # Nuevo directorio
     ${OpenCV_INCLUDE_DIRS}
     ${OPENGL_INCLUDE_DIR}
     ${GLEW_INCLUDE_DIRS}
