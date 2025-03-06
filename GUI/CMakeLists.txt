@@ -5,35 +5,71 @@ project(BarnesHutSimulation LANGUAGES CXX CUDA)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Find required packages
-find_package(OpenCV REQUIRED COMPONENTS core imgproc highgui)
+# Find system packages
 find_package(OpenGL REQUIRED)
-find_package(GLEW REQUIRED)
-find_package(OpenMP REQUIRED)
 find_package(CUDAToolkit REQUIRED)
 
 # Include FetchContent for external dependencies
 include(FetchContent)
 
-# GLFW
+# Disable system GLFW if it exists
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+
+# Explicitly unset any existing GLFW targets
+unset(glfw_FOUND CACHE)
+unset(GLFW_FOUND CACHE)
+
+# Use FetchContent for all dependencies
 FetchContent_Declare(
     glfw
     GIT_REPOSITORY https://github.com/glfw/glfw.git
     GIT_TAG 3.4
+    OVERRIDE_FIND_PACKAGE
 )
 
 # GLM (OpenGL Mathematics)
 FetchContent_Declare(
     glm
     GIT_REPOSITORY https://github.com/g-truc/glm.git
-    GIT_TAG 1.0.1
+    GIT_TAG 0.9.9.8
 )
+
+# ImGui
+FetchContent_Declare(
+    imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG v1.90
+)
+
+# Disable package finding for these libraries
+set(CMAKE_FIND_PACKAGE_PREFER_CONFIG TRUE)
+set(CMAKE_FIND_PACKAGE_QUIET TRUE)
 
 # Make dependencies available
 FetchContent_MakeAvailable(glfw glm)
+
+# Prepare ImGui manually
+FetchContent_GetProperties(imgui)
+if(NOT imgui_POPULATED)
+    FetchContent_Populate(imgui)
+endif()
+
+# ImGui source files
+set(IMGUI_SOURCES
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+)
+
+# GLAD source files (using local directory)
+set(GLAD_SOURCE 
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/glad/src/glad.c
+)
 
 # Locate CUDA kernel source files
 file(GLOB CUDA_KERNEL_SOURCES 
@@ -48,6 +84,9 @@ file(GLOB CUDA_KERNEL_SOURCES
 add_executable(BarnesHutSimulation 
     src/main.cpp
     ${CUDA_KERNEL_SOURCES}
+    ${IMGUI_SOURCES}
+    ${GLAD_SOURCE}
+    src/ui/simulation_ui_manager.cpp
 )
 
 # CUDA Configuration
@@ -59,21 +98,22 @@ set_target_properties(BarnesHutSimulation PROPERTIES
 # Include directories
 target_include_directories(BarnesHutSimulation PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/ui  # Nuevo directorio
-    ${OpenCV_INCLUDE_DIRS}
-    ${OPENGL_INCLUDE_DIR}
-    ${GLEW_INCLUDE_DIRS}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/ui
     ${CUDAToolkit_INCLUDE_DIRS}
+    ${OPENGL_INCLUDE_DIRS}
+    ${glfw_SOURCE_DIR}/include
+    ${glm_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/glad/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/include
 )
 
 # Link libraries
 target_link_libraries(BarnesHutSimulation 
-    ${OpenCV_LIBS}
     OpenGL::GL
-    GLEW::GLEW
     glfw
     glm
-    OpenMP::OpenMP_CXX
     CUDA::cudart
     CUDA::cuda_driver
 )
