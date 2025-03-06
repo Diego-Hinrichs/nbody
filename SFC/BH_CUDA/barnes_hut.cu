@@ -44,14 +44,15 @@ __global__ void ComputeBoundingBoxKernel(Node *node, Body *bodies, int *mutex, i
     int tx = threadIdx.x;
     int b = blockIdx.x * blockDim.x + tx;
 
-    topLeftFrontX[tx] = INFINITY; // Para encontrar mínimo en X
+    // Inicializar con valores extremos
+    topLeftFrontX[tx] = INFINITY;  // Para encontrar mínimo en X
     topLeftFrontY[tx] = -INFINITY; // Para encontrar mínimo en Y
-    topLeftFrontZ[tx] = INFINITY; // Para encontrar mínimo en Z
+    topLeftFrontZ[tx] = INFINITY;  // Para encontrar mínimo en Z
 
     botRightBackX[tx] = -INFINITY; // Para encontrar máximo en X
-    botRightBackY[tx] = INFINITY; // Para encontrar máximo en Y
+    botRightBackY[tx] = INFINITY;  // Para encontrar máximo en Y
     botRightBackZ[tx] = -INFINITY; // Para encontrar máximo en Z
-    
+
     __syncthreads();
 
     // Cargar datos del cuerpo si está dentro del rango
@@ -93,11 +94,10 @@ __global__ void ComputeBoundingBoxKernel(Node *node, Body *bodies, int *mutex, i
         // Actualizar mínimos con margen
         node[0].topLeftFront.x = fminf(node[0].topLeftFront.x, topLeftFrontX[0] - 1.0e10);
         node[0].botRightBack.y = fmaxf(node[0].botRightBack.y, botRightBackY[0] - 1.0e10);
-        
 
         node[0].topLeftFront.y = fminf(node[0].topLeftFront.y, topLeftFrontY[0] + 1.0e10);
         node[0].botRightBack.x = fmaxf(node[0].botRightBack.x, botRightBackX[0] + 1.0e10);
-        
+
         node[0].topLeftFront.z = fminf(node[0].topLeftFront.z, topLeftFrontZ[0] + 1.0e10);
         node[0].botRightBack.z = fmaxf(node[0].botRightBack.z, botRightBackZ[0] - 1.0e10);
 
@@ -112,7 +112,6 @@ __device__ int getOctant(Vector topLeftFront, Vector botRightBack, double x, dou
     double midY = (topLeftFront.y + botRightBack.y) / 2;
     double midZ = (topLeftFront.z + botRightBack.z) / 2;
 
-    // El problema podría estar aquí en la asignación de octantes
     if (x <= midX)
     {
         if (y >= midY)
@@ -224,7 +223,6 @@ __device__ void warpReduce(volatile double *totalMass, volatile double3 *centerM
     centerMass[tx].x += centerMass[tx + 1].x;
     centerMass[tx].y += centerMass[tx + 1].y;
     centerMass[tx].z += centerMass[tx + 1].z;
-    // printf("Thread %d: totalMass = %f, centerMass = (%f, %f, %f)\n", tx, totalMass[tx], centerMass[tx].x, centerMass[tx].y, centerMass[tx].z);
 }
 
 __device__ void ComputeCenterMass(Node &curNode, Body *bodies, double *totalMass, double3 *centerMass, int start, int end)
@@ -408,7 +406,9 @@ __global__ void ConstructOctTreeKernel(Node *node, Body *bodies, Body *buffer, i
 
 __device__ double getDistance(Vector pos1, Vector pos2)
 {
-    return sqrt(pow(pos1.x - pos2.x, 2) + pow(pos1.y - pos2.y, 2) + pow(pos1.z - pos2.z, 2));
+    return sqrt((pos1.x - pos2.x) * (pos1.x - pos2.x) +
+                (pos1.y - pos2.y) * (pos1.y - pos2.y) +
+                (pos1.z - pos2.z) * (pos1.z - pos2.z));
 }
 
 __device__ bool isCollide(Body &b1, Vector cm)
@@ -426,86 +426,87 @@ __device__ void ComputeForce(Node *node, Body *bodies, int nodeIndex, int bodyIn
 
     Node curNode = node[nodeIndex];
     Body bi = bodies[bodyIndex];
-    
-    if (curNode.isLeaf)
-    {   
-        if (curNode.centerMass.x != -1 && !isCollide(bi, curNode.centerMass))
-        {
-            Vector rij = {
-                curNode.centerMass.x - bi.position.x,
-                curNode.centerMass.y - bi.position.y,
-                curNode.centerMass.z - bi.position.z};
-            // Calcular r² sin suavizado
-            double r2 = (rij.x * rij.x) + (rij.y * rij.y) + (rij.z * rij.z);
-            // Usar la fórmula: (r^2 + E^2)^(3/2)
-            double r = sqrt(r2 + (E * E));
-            double f = (GRAVITY * bi.mass * curNode.totalMass) / (r * r * r + (E * E));
-            Vector force = {rij.x * f, rij.y * f, rij.z * f};
 
-            bodies[bodyIndex].acceleration.x += (force.x / bi.mass);
-            bodies[bodyIndex].acceleration.y += (force.y / bi.mass);
-            bodies[bodyIndex].acceleration.z += (force.z / bi.mass);
-        }
+    // Skip empty nodes
+    if (curNode.start == -1 && curNode.end == -1)
         return;
-    }
 
-    // Caso de aproximación multipolo
-    double distance = getDistance(bi.position, curNode.centerMass);
-    double sd = width / distance; // TAMANIO DE LA REGION / DISTANCIA, kd-tree
-    if (sd < THETA)
+    // Skip if computing force on itself
+    if (curNode.isLeaf && curNode.start == bodyIndex && curNode.end == bodyIndex)
+        return;
+
+    // If it's a leaf or can use multipole approximation
+    if (curNode.isLeaf || (curNode.totalMass > 0.0 && width / getDistance(bi.position, curNode.centerMass) < THETA))
     {
-        if (!isCollide(bi, curNode.centerMass))
-        {
-            Vector rij = {
-                curNode.centerMass.x - bi.position.x,
-                curNode.centerMass.y - bi.position.y,
-                curNode.centerMass.z - bi.position.z};
+        // Skip if collision detected
+        if (curNode.totalMass <= 0.0 || isCollide(bi, curNode.centerMass))
+            return;
 
-            double r2 = (rij.x * rij.x) + (rij.y * rij.y) + (rij.z * rij.z);
-            double r = sqrt(r2 + (E * E));
-            double f = (GRAVITY * bi.mass * curNode.totalMass) / (r * r * r + (E * E));
-            Vector force = {rij.x * f, rij.y * f, rij.z * f};
+        // Calculate force
+        Vector rij = {
+            curNode.centerMass.x - bi.position.x,
+            curNode.centerMass.y - bi.position.y,
+            curNode.centerMass.z - bi.position.z};
 
-            bodies[bodyIndex].acceleration.x += (force.x / bi.mass);
-            bodies[bodyIndex].acceleration.y += (force.y / bi.mass);
-            bodies[bodyIndex].acceleration.z += (force.z / bi.mass);
-        }
+        double r2 = (rij.x * rij.x) + (rij.y * rij.y) + (rij.z * rij.z);
+        double r = sqrt(r2 + (E * E));
+
+        // Use correct formula: G * m1 * m2 / r^3
+        double f = (GRAVITY * bi.mass * curNode.totalMass) / (r * r * r);
+
+        // Apply force
+        bodies[bodyIndex].acceleration.x += (rij.x * f / bi.mass);
+        bodies[bodyIndex].acceleration.y += (rij.y * f / bi.mass);
+        bodies[bodyIndex].acceleration.z += (rij.z * f / bi.mass);
+
         return;
     }
 
-    // Si no se cumple la condición de aproximación, se recorre recursivamente a los 8 hijos.
+    // Recurse through child nodes
     for (int i = 1; i <= 8; i++)
     {
-        ComputeForce(node, bodies, (nodeIndex * 8) + i, bodyIndex, nNodes, nBodies, leafLimit, width / 2);
+        int childIndex = (nodeIndex * 8) + i;
+        if (childIndex < nNodes)
+        {
+            ComputeForce(node, bodies, childIndex, bodyIndex, nNodes, nBodies, leafLimit, width / 2);
+        }
     }
 }
 
 __global__ void ComputeForceKernel(Node *node, Body *bodies, int nNodes, int nBodies, int leafLimit)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
-    double width = node[0].botRightBack.x - node[0].topLeftFront.x;
-    if (i < nBodies)
+
+    if (i >= nBodies)
+        return;
+
+    // Calculate domain width (needed for multipole criterion)
+    double width = max(
+        fabs(node[0].botRightBack.x - node[0].topLeftFront.x),
+        max(
+            fabs(node[0].botRightBack.y - node[0].topLeftFront.y),
+            fabs(node[0].botRightBack.z - node[0].topLeftFront.z)));
+
+    Body &bi = bodies[i];
+
+    if (bi.isDynamic)
     {
-        Body &bi = bodies[i];
-        if (bi.isDynamic)
-        {
-            // Reiniciar la aceleración
-            bi.acceleration = {0.0, 0.0, 0.0};
+        // Reset acceleration
+        bi.acceleration = {0.0, 0.0, 0.0};
 
-            // Compute the force recursively
-            ComputeForce(node, bodies, 0, i, nNodes, nBodies, leafLimit, width);
+        // Compute forces from octree
+        ComputeForce(node, bodies, 0, i, nNodes, nBodies, leafLimit, width);
 
-            // Update velocity and position with integration (Euler)
-            bi.velocity.x += bi.acceleration.x * DT;
-            bi.velocity.y += bi.acceleration.y * DT;
-            bi.velocity.z += bi.acceleration.z * DT;
+        // Update velocity (Euler integration)
+        bi.velocity.x += bi.acceleration.x * DT;
+        bi.velocity.y += bi.acceleration.y * DT;
+        bi.velocity.z += bi.acceleration.z * DT;
 
-            bi.position.x += bi.velocity.x * DT;
-            bi.position.y += bi.velocity.y * DT;
-            bi.position.z += bi.velocity.z * DT;
-
-        }
+        // Update position
+        bi.position.x += bi.velocity.x * DT;
+        bi.position.y += bi.velocity.y * DT;
+        bi.position.z += bi.velocity.z * DT;
     }
 }
 
-#endif
+#endif // BARNES_HUT_KERNEL_
