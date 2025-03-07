@@ -96,12 +96,7 @@ void SimulationUIManager::renderSimulationOptionsPanel()
         simulationState_.useSFC.store(sfcEnabled);
         simulationState_.restart.store(true);
     }
-    
-    // // Mass Scaling Slider
-    // float massScaleFactor = simulationState_.massScaleFactor.load();
-    // if (ImGui::SliderFloat("Mass Scale", &massScaleFactor, 0.01f, 1.0f, "%.2f"))
-    // {
-    //     simulationState_.massScaleFactor.store(massScaleFactor);
-    // }
-    ImGui::TextDisabled("Adjust body size and brightness scaling");
+
+    ImGui::Separator();
+    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Press ESC key to exit the simulation");
 }

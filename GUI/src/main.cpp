@@ -67,6 +67,23 @@ void APIENTRY glDebugOutput(GLenum source, GLenum type, GLuint id, GLenum severi
     std::cout << "OpenGL Debug: " << message << std::endl;
 }
 
+// Keyboard callback function to handle ESC key to exit the simulation
+void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+    // Check if escape key was pressed
+    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+    {
+        // Set the window to close and stop the simulation
+        glfwSetWindowShouldClose(window, GLFW_TRUE);
+        
+        // If we have access to the simulation state, also set running to false
+        if (g_simulationState != nullptr)
+        {
+            g_simulationState->running.store(false);
+        }
+    }
+}
+
 // Simulation thread function
 void simulationThread(SimulationState *state)
 {
@@ -277,6 +294,8 @@ int main(int argc, char **argv)
         glfwMakeContextCurrent(window);
         glfwSwapInterval(1); // Enable vsync
 
+        glfwSetKeyCallback(window, key_callback);
+        
         // Load OpenGL functions with GLAD
         if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
         {
