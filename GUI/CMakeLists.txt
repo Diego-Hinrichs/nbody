@@ -1,5 +1,20 @@
 cmake_minimum_required(VERSION 3.24)
-project(BarnesHutSimulation LANGUAGES CXX CUDA)
+
+# Set C and C++ compilers explicitly if needed
+if(NOT DEFINED CMAKE_C_COMPILER)
+  set(CMAKE_C_COMPILER gcc)
+endif()
+if(NOT DEFINED CMAKE_CXX_COMPILER)
+  set(CMAKE_CXX_COMPILER g++)
+endif()
+
+# Ensure compiler rules are set
+include(CMakeForceCompiler)
+enable_language(C)
+enable_language(CXX)
+enable_language(CUDA)
+
+project(BarnesHutSimulation LANGUAGES C CXX CUDA)
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 20)
@@ -66,10 +81,18 @@ set(IMGUI_SOURCES
     ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
 )
 
-# GLAD source files (using local directory)
+# GLAD source and header files
 set(GLAD_SOURCE 
     ${CMAKE_CURRENT_SOURCE_DIR}/external/glad/src/glad.c
 )
+set(GLAD_INCLUDE_DIR 
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/glad/include
+)
+
+# Verify GLAD header exists
+if(NOT EXISTS ${GLAD_INCLUDE_DIR}/glad/glad.h)
+    message(FATAL_ERROR "GLAD header not found in ${GLAD_INCLUDE_DIR}")
+endif()
 
 # Locate CUDA kernel source files
 file(GLOB CUDA_KERNEL_SOURCES 
@@ -80,13 +103,28 @@ file(GLOB CUDA_KERNEL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cu
 )
 
-# Add executable
-add_executable(BarnesHutSimulation 
+# First, create a separate target for GLAD
+add_library(glad STATIC 
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/glad/src/glad.c
+)
+
+# Set include directories for GLAD
+target_include_directories(glad PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/glad/include
+)
+
+# Define the executable sources without GLAD
+set(EXECUTABLE_SOURCES 
     src/main.cpp
     ${CUDA_KERNEL_SOURCES}
     ${IMGUI_SOURCES}
-    ${GLAD_SOURCE}
     src/ui/simulation_ui_manager.cpp
+    src/ui/opengl_renderer.cpp
+)
+
+# Add executable
+add_executable(BarnesHutSimulation 
+    ${EXECUTABLE_SOURCES}
 )
 
 # CUDA Configuration
@@ -105,12 +143,13 @@ target_include_directories(BarnesHutSimulation PRIVATE
     ${glm_SOURCE_DIR}
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/glad/include
+    ${GLAD_INCLUDE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/external/include
 )
 
 # Link libraries
 target_link_libraries(BarnesHutSimulation 
+    glad
     OpenGL::GL
     glfw
     glm
