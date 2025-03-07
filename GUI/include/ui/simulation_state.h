@@ -18,6 +18,7 @@ struct SimulationState
     // Simulation parameters
     std::atomic<int> numBodies;
     std::atomic<double> zoomFactor;
+    std::atomic<double> massScaleFactor;
 
     // Thread synchronization
     std::mutex mtx;

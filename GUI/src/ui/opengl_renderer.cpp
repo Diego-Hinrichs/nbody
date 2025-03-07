@@ -28,7 +28,7 @@ const char *vertexShaderSource = R"(
         
         // Adjust point size based on normalized mass
         // Higher values will appear larger
-        float massScale = max(aMass * 3.0, 0.1);
+        float massScale = max(aMass * 1.0, 0.01);
         
         // Apply distance attenuation - closer objects appear larger
         float distanceScale = 10.0 / (1.0 + vDistance * 0.1);
@@ -55,13 +55,13 @@ const char *fragmentShaderSource = R"(
         float coreBrightness;
         
         // Higher mass bodies get brighter colors
-        if (vMass > 0.8) {
+        if (vMass > 1.0) {
             // Bright yellow for most massive bodies
             bodyColor = vec3(1.0, 0.9, 0.7);
             glowIntensity = 0.8;
             coreBrightness = 1.0;
         }
-        else if (vMass > 0.5) {
+        else if (vMass > 0.8) {
             // Orange for medium-mass bodies
             bodyColor = vec3(1.0, 0.5, 0.2);
             glowIntensity = 0.5;
@@ -237,11 +237,11 @@ void OpenGLRenderer::init()
             std::cerr << "Error setting blend function: " << err << std::endl;
 
         // Point rendering optimizations
-        glEnable(GL_POINT_SMOOTH);
-        glHint(GL_POINT_SMOOTH_HINT, GL_NICEST);
-        err = glGetError();
-        if (err != GL_NO_ERROR)
-            std::cerr << "Error configuring point rendering: " << err << std::endl;
+        // glEnable(GL_POINT_SMOOTH);
+        // glHint(GL_POINT_SMOOTH_HINT, GL_NICEST);
+        // err = glGetError();
+        // if (err != GL_NO_ERROR)
+        //     std::cerr << "Error configuring point rendering: " << err << std::endl;
 
         // Create the shader program with comprehensive error checking
         createShaderProgram();
@@ -309,7 +309,7 @@ void OpenGLRenderer::render(float aspectRatio)
 
     // Scale factor for adjusting normalized coordinates
     float scaleFactor = 1.0f * zoomFactor;
-
+    
     // Use shader program
     glUseProgram(shaderProgram_);
 
@@ -339,7 +339,7 @@ void OpenGLRenderer::render(float aspectRatio)
 }
 
 void OpenGLRenderer::updateBodies(Body *bodies, int numBodies)
-{
+{   
     if (numBodies <= 0 || !bodies)
     {
         std::cerr << "Warning: No bodies to update or invalid data." << std::endl;
@@ -347,6 +347,8 @@ void OpenGLRenderer::updateBodies(Body *bodies, int numBodies)
     }
 
     std::cout << "Updating " << numBodies << " bodies" << std::endl;
+
+    float massScaleFactor = simulationState_.massScaleFactor.load();
 
     // Find coordinate center to help with scaling
     Vector centerOfMass(0, 0, 0);
@@ -417,14 +419,14 @@ void OpenGLRenderer::updateBodies(Body *bodies, int numBodies)
         float normalizedX = static_cast<float>((bodies[i].position.x - centerOfMass.x) / maxRange);
         float normalizedY = static_cast<float>((bodies[i].position.y - centerOfMass.y) / maxRange);
         float normalizedZ = static_cast<float>((bodies[i].position.z - centerOfMass.z) / maxRange);
-
+        
         // Add normalized coordinates
         combinedData.push_back(normalizedX);
         combinedData.push_back(normalizedY);
         combinedData.push_back(normalizedZ);
 
         // Normalize mass logarithmically for visibility
-        float normalizedMass = static_cast<float>(log(std::max(bodies[i].mass, 1.0)) / 30.0);
+        float normalizedMass = static_cast<float>(log(std::max(bodies[i].mass, 1.0)) * massScaleFactor);
         combinedData.push_back(normalizedMass);
     }
 
