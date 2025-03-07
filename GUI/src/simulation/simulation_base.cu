@@ -90,13 +90,20 @@ void SimulationBase::initRandomBodies()
 
 void SimulationBase::setup()
 {
-    // Initialize bodies with random positions and velocities
     initRandomBodies();
 
-    // Transfer bodies to device
-    copyBodiesToDevice();
+    // Imprimir primeros 5 cuerpos para verificación
+    for (int i = 0; i < 5 && i < nBodies; ++i)
+    {
+        std::cout << "Cuerpo " << i
+                  << ": x=" << h_bodies[i].position.x
+                  << ", y=" << h_bodies[i].position.y
+                  << ", z=" << h_bodies[i].position.z
+                  << ", masa=" << h_bodies[i].mass << std::endl;
+    }
 
-    // Mark as initialized
+    // Resto del método sin cambios
+    copyBodiesToDevice();
     isInitialized = true;
 }
 

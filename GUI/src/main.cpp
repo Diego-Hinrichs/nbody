@@ -14,6 +14,7 @@
 #include "../include/simulation/barnes_hut.cuh"
 #include "../include/simulation/sfc_barnes_hut.cuh"
 #include "../include/ui/simulation_state.h"
+#include "../include/ui/opengl_renderer.h"
 
 // Logging function
 void logMessage(const std::string &message, bool isError = false)
@@ -120,6 +121,14 @@ void simulationThread(SimulationState *state)
         // Read bodies from device
         simulation->copyBodiesFromDevice();
 
+        // Update shared bodies for rendering
+        state->mtx.lock();
+        delete[] state->sharedBodies;
+        state->sharedBodies = new Body[currentNumBodies];
+        memcpy(state->sharedBodies, simulation->getBodies(), currentNumBodies * sizeof(Body));
+        state->currentBodiesCount = currentNumBodies;
+        state->mtx.unlock();
+
         // Calculate performance metrics
         auto now = std::chrono::steady_clock::now();
         double frameTime = std::chrono::duration<double, std::milli>(now - frameStart).count();
@@ -196,6 +205,12 @@ int main(int argc, char **argv)
             return -1;
         }
 
+        // OpenGL configuration
+        glEnable(GL_DEPTH_TEST);
+        glEnable(GL_PROGRAM_POINT_SIZE);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
         // Setup Dear ImGui context
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
@@ -217,6 +232,10 @@ int main(int argc, char **argv)
         simulationState.numBodies.store(config.initialBodies);
         simulationState.useSFC.store(config.useSFC);
 
+        // Create OpenGL renderer
+        OpenGLRenderer renderer(simulationState);
+        renderer.init();
+
         // Set global simulation state for callbacks
         g_simulationState = &simulationState;
 
@@ -228,6 +247,24 @@ int main(int argc, char **argv)
         {
             // Poll and handle events
             glfwPollEvents();
+
+            // Render bodies if available
+            simulationState.mtx.lock();
+            if (simulationState.sharedBodies)
+            {
+                renderer.updateBodies(
+                    simulationState.sharedBodies,
+                    simulationState.currentBodiesCount);
+            }
+            simulationState.mtx.unlock();
+
+            // Get window dimensions
+            int width, height;
+            glfwGetFramebufferSize(window, &width, &height);
+            float aspectRatio = static_cast<float>(width) / static_cast<float>(height);
+
+            // Render bodies
+            renderer.render(aspectRatio);
 
             // Start ImGui frame
             ImGui_ImplOpenGL3_NewFrame();
@@ -265,12 +302,6 @@ int main(int argc, char **argv)
 
             // Render ImGui
             ImGui::Render();
-
-            // Clear screen
-            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT);
-
-            // Render ImGui draw data
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
             // Swap front and back buffers
