@@ -74,12 +74,12 @@ void SimulationUIManager::renderBodyCountSelector()
     ImGui::Text("Simulation Setup");
 
     // Body count selection
-    const char *bodyCounts[] = {"1000", "5000", "10000", "20000", "50000"};
-    static int currentBodyCount = 0;
-
-    if (ImGui::Combo("Number of Bodies", &currentBodyCount, bodyCounts, IM_ARRAYSIZE(bodyCounts)))
+    ImGui::Separator();
+    ImGui::Text("Bodies");
+    int numBodies = simulationState_.numBodies.load();
+    if (ImGui::SliderInt("Number of Bodies", &numBodies, 1024, 64000, "%d"))
     {
-        simulationState_.numBodies.store(std::stoi(bodyCounts[currentBodyCount]));
+        simulationState_.numBodies.store(numBodies);
         simulationState_.restart.store(true);
     }
 }
