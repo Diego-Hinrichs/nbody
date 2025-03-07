@@ -219,8 +219,12 @@ void simulationThread(SimulationState *state)
 int main(int argc, char **argv)
 {
     try
-    {
+    {   
         std::cout << "Attempting to use dedicated GPU..." << std::endl;
+        
+        // Parse command-line arguments
+        SimulationConfig config = parseArgs(argc, argv);
+
         // Initialize GLFW
         glfwSetErrorCallback(glfw_error_callback);
         if (!glfwInit())
@@ -231,8 +235,8 @@ int main(int argc, char **argv)
 
         // OpenGL and window hints
         // En el método de inicialización de GLFW
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
         glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
         glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_NATIVE_CONTEXT_API);
@@ -242,12 +246,25 @@ int main(int argc, char **argv)
         const GLFWvidmode *mode = glfwGetVideoMode(monitor);
 
         // Create window (windowed mode for easier debugging)
-        GLFWwindow *window = glfwCreateWindow(
+        GLFWwindow *window = nullptr;
+        if (config.fullscreen)
+        {
+            window = glfwCreateWindow(
+            mode->width,
+            mode->height,
+            "N-Body Simulation",
+            monitor, // Fullscreen mode
+            nullptr);
+        }
+        else
+        {
+            window = glfwCreateWindow(
             1280,
             720,
             "N-Body Simulation",
             nullptr, // Windowed mode
             nullptr);
+        }
 
         if (!window)
         {
@@ -266,7 +283,8 @@ int main(int argc, char **argv)
             logMessage("Failed to initialize GLAD", true);
             return -1;
         }
-
+        // Extensive OpenGL context and capability checking
+        std::cout << "OpenGL Initialization Details:" << std::endl;
         logMessage("OpenGL Version: " + std::string((char *)glGetString(GL_VERSION)));
         logMessage("GLSL Version: " + std::string((char *)glGetString(GL_SHADING_LANGUAGE_VERSION)));
         logMessage("Renderer: " + std::string((char *)glGetString(GL_RENDERER)));
@@ -289,9 +307,6 @@ int main(int argc, char **argv)
 
         // Setup Dear ImGui style
         ImGui::StyleColorsDark();
-
-        // Parse command-line arguments
-        SimulationConfig config = parseArgs(argc, argv);
 
         // Create simulation state
         SimulationState simulationState;

@@ -63,10 +63,10 @@ void SimulationBase::initRandomBodies()
 
         // Assign mass based on a narrower power law distribution
         double massFactor = pow(rand() / (double)RAND_MAX, 2.0);
-        h_bodies[i].mass = EARTH_MASS * (0.5 + massFactor);
+        h_bodies[i].mass = EARTH_MASS;
 
         // Adjust radius based on mass
-        h_bodies[i].radius = EARTH_DIA * pow(massFactor, 0.3);
+        h_bodies[i].radius = EARTH_DIA;
 
         h_bodies[i].position = Vector(x, y, z);
 
@@ -88,74 +88,19 @@ void SimulationBase::initRandomBodies()
     }
 }
 
-// void SimulationBase::initRandomBodies()
-// {
-//     // Seed random number generator
-//     srand(time(NULL));
-
-//     double maxDistance = MAX_DIST;
-//     double minDistance = MIN_DIST;
-//     Vector centerPos(CENTERX, CENTERY, CENTERZ);
-
-//     // Generate random bodies in a spherical distribution
-//     for (int i = 0; i < nBodies; ++i)
-//     {
-//         // Generate random spherical coordinates
-//         double u = rand() / (double)RAND_MAX; // For theta
-//         double v = rand() / (double)RAND_MAX; // For phi
-//         double theta = 2.0 * M_PI * u;
-//         double phi = acos(2.0 * v - 1.0);
-
-//         // Random radius between min and max distance
-//         double radius = (maxDistance - minDistance) * (rand() / (double)RAND_MAX) + minDistance;
-
-//         // Convert to Cartesian coordinates
-//         double x = centerPos.x + radius * sin(phi) * cos(theta);
-//         double y = centerPos.y + radius * sin(phi) * sin(theta);
-//         double z = centerPos.z + radius * cos(phi);
-
-//         // Setup body properties
-//         h_bodies[i].isDynamic = true;
-//         h_bodies[i].mass = (i == 0) ? SUN_MASS : EARTH_MASS * (0.8 + 0.4 * (rand() / (double)RAND_MAX));
-//         h_bodies[i].radius = (i == 0) ? SUN_DIA : EARTH_DIA * (0.5 + (rand() / (double)RAND_MAX));
-//         h_bodies[i].position = Vector(x, y, z);
-
-//         // Setup initial velocities for orbital motion
-//         if (i > 0)
-//         { // Skip the sun
-//             // Calculate orbital velocity for a stable orbit
-//             double dist = sqrt(x * x + y * y + z * z);
-//             double orbitalSpeed = sqrt(GRAVITY * SUN_MASS / dist);
-
-//             // Calculate a vector perpendicular to the radius
-//             double vx = -y * orbitalSpeed / dist;
-//             double vy = x * orbitalSpeed / dist;
-//             double vz = 0; // Simplified to planar orbits
-
-//             h_bodies[i].velocity = Vector(vx, vy, vz);
-//         }
-//         else
-//         {
-//             h_bodies[i].velocity = Vector(0.0, 0.0, 0.0); // Sun doesn't move initially
-//         }
-
-//         h_bodies[i].acceleration = Vector(0.0, 0.0, 0.0);
-//     }
-// }
-
 void SimulationBase::setup()
 {
     initRandomBodies();
 
     // Imprimir primeros 5 cuerpos para verificación
-    for (int i = 0; i < 5 && i < nBodies; ++i)
-    {
-        std::cout << "Cuerpo " << i
-                  << ": x=" << h_bodies[i].position.x
-                  << ", y=" << h_bodies[i].position.y
-                  << ", z=" << h_bodies[i].position.z
-                  << ", masa=" << h_bodies[i].mass << std::endl;
-    }
+    // for (int i = 0; i < 5 && i < nBodies; ++i)
+    // {
+    //     std::cout << "Cuerpo " << i
+    //               << ": x=" << h_bodies[i].position.x
+    //               << ", y=" << h_bodies[i].position.y
+    //               << ", z=" << h_bodies[i].position.z
+    //               << ", masa=" << h_bodies[i].mass << std::endl;
+    // }
 
     // Resto del método sin cambios
     copyBodiesToDevice();

@@ -3,6 +3,7 @@
 #include <limits>
 #include <cmath>
 
+// Vertex Shader
 const char *vertexShaderSource = R"(
     #version 330 core
     layout (location = 0) in vec3 aPosition;
@@ -17,8 +18,11 @@ const char *vertexShaderSource = R"(
     out float vDistance;
 
     void main() {
-        // The position is already normalized
-        vec4 viewPos = uView * vec4(aPosition, 1.0);
+        // Scale coordinates - apply scale factor to handle astronomical distances
+        vec3 scaledPos = aPosition * uScaleFactor;
+        
+        // Calculate position in view space
+        vec4 viewPos = uView * vec4(scaledPos, 1.0);
         
         // Calculate distance from camera (for falloff effects)
         vDistance = length(viewPos.xyz);
@@ -26,17 +30,28 @@ const char *vertexShaderSource = R"(
         // Calculate final position
         gl_Position = uProjection * viewPos;
         
-        // Adjust point size based on normalized mass
-        // Higher values will appear larger
-        float massScale = max(aMass * 1.0, 0.01);
+        // Adjust point size based on mass and distance
+        // For the sun (very massive objects)
+        float massScale = 1.0;
+        if (aMass > 1.0e28) {
+            massScale = 4.0; // Make the sun larger
+        }
+        else if (aMass > 1.0e24) {
+            massScale = 2.0; // Make planets visible
+        }
+        else {
+            // For smaller objects, scale by mass logarithmically
+            massScale = log(aMass / 1.0e20) * 0.2;
+            if (massScale < 0.1) massScale = 0.1;
+        }
         
         // Apply distance attenuation - closer objects appear larger
-        float distanceScale = 10.0 / (1.0 + vDistance * 0.1);
+        float distanceScale = 10.0 / (1.0 + vDistance * 0.00001);
         
         // Combine all scaling factors
         gl_PointSize = uPointSize * massScale * clamp(distanceScale, 0.1, 5.0);
         
-        // Pass mass to fragment shader (already scaled)
+        // Pass mass to fragment shader
         vMass = aMass;
     }
 )";
@@ -49,28 +64,49 @@ const char *fragmentShaderSource = R"(
     out vec4 FragColor;
 
     void main() {
-        // Determine body type based on normalized mass
+        // Determine body type based on mass
         vec3 bodyColor;
         float glowIntensity;
         float coreBrightness;
         
-        // Higher mass bodies get brighter colors
-        if (vMass > 1.0) {
-            // Bright yellow for most massive bodies
+        // Sun-like bodies (very massive)
+        if (vMass > 1.0e28) {
+            // Yellow-white for sun
             bodyColor = vec3(1.0, 0.9, 0.7);
             glowIntensity = 0.8;
             coreBrightness = 1.0;
         }
-        else if (vMass > 0.8) {
-            // Orange for medium-mass bodies
-            bodyColor = vec3(1.0, 0.5, 0.2);
-            glowIntensity = 0.5;
+        // Planet-sized bodies
+        else if (vMass > 1.0e24) {
+            // Use a color gradient based on exact mass
+            float t = (log(vMass) - log(1.0e24)) / (log(1.0e28) - log(1.0e24));
+            
+            // Create a spectrum of planet colors
+            if (t < 0.2) {
+                bodyColor = mix(vec3(0.2, 0.2, 0.8), vec3(0.2, 0.5, 0.8), t*5.0); // Blue/ocean planets
+            } else if (t < 0.4) {
+                bodyColor = mix(vec3(0.2, 0.5, 0.8), vec3(0.2, 0.7, 0.4), (t-0.2)*5.0); // Blue-green planets
+            } else if (t < 0.6) {
+                bodyColor = mix(vec3(0.2, 0.7, 0.4), vec3(0.7, 0.7, 0.2), (t-0.4)*5.0); // Green to yellow planets
+            } else if (t < 0.8) {
+                bodyColor = mix(vec3(0.7, 0.7, 0.2), vec3(0.8, 0.4, 0.2), (t-0.6)*5.0); // Yellow to red planets
+            } else {
+                bodyColor = mix(vec3(0.8, 0.4, 0.2), vec3(0.6, 0.3, 0.1), (t-0.8)*5.0); // Reddish planets
+            }
+            
+            glowIntensity = 0.3;
             coreBrightness = 0.8;
         }
+        // Small bodies (asteroids, etc.)
         else {
-            // Blue-gray for smaller bodies
-            bodyColor = vec3(0.4, 0.6, 0.8);
-            glowIntensity = 0.3;
+            // Gray to white for small bodies
+            float smallBodyFactor = clamp(log(vMass / 1.0e20) / 10.0, 0.0, 1.0);
+            bodyColor = mix(
+                vec3(0.5, 0.5, 0.5),   // Gray for very small bodies
+                vec3(0.7, 0.7, 0.8),   // Light blue-gray for larger small bodies
+                smallBodyFactor
+            );
+            glowIntensity = 0.1;
             coreBrightness = 0.6;
         }
         
@@ -96,8 +132,10 @@ const char *fragmentShaderSource = R"(
         // Adjust alpha based on distance from center
         float alpha = mix(glowIntensity, 1.0, coreFactor);
         
-        // Distance fade effect
-        alpha *= clamp(1.0 - (vDistance * 0.1), 0.1, 1.0);
+        // Distance fade effect for small bodies
+        if (vMass < 1.0e24) {
+            alpha *= clamp(1.0 - (vDistance * 0.0000001), 0.1, 1.0);
+        }
         
         FragColor = vec4(finalColor, alpha);
     }
@@ -186,15 +224,6 @@ void OpenGLRenderer::setupBuffers()
 
 void OpenGLRenderer::init()
 {
-    // Extensive OpenGL context and capability checking
-    std::cout << "OpenGL Initialization Details:" << std::endl;
-
-    // Print OpenGL context information
-    std::cout << "OpenGL Version: " << glGetString(GL_VERSION) << std::endl;
-    std::cout << "OpenGL Renderer: " << glGetString(GL_RENDERER) << std::endl;
-    std::cout << "OpenGL Vendor: " << glGetString(GL_VENDOR) << std::endl;
-    std::cout << "GLSL Version: " << glGetString(GL_SHADING_LANGUAGE_VERSION) << std::endl;
-
     // Check OpenGL capabilities
     GLint maxVertexAttribs, maxTextureUnits, maxTextureSize;
     glGetIntegerv(GL_MAX_VERTEX_ATTRIBS, &maxVertexAttribs);
@@ -281,9 +310,9 @@ void OpenGLRenderer::render(float aspectRatio)
 {
     if (numBodies_ == 0 || shaderProgram_ == 0)
     {
-        std::cerr << "Rendering conditions not met: "
-                  << "numBodies=" << numBodies_
-                  << ", shaderProgram=" << shaderProgram_ << std::endl;
+        // std::cerr << "Rendering conditions not met: "
+        //           << "numBodies=" << numBodies_
+        //           << ", shaderProgram=" << shaderProgram_ << std::endl;
         return;
     }
 
@@ -346,9 +375,7 @@ void OpenGLRenderer::updateBodies(Body *bodies, int numBodies)
         return;
     }
 
-    std::cout << "Updating " << numBodies << " bodies" << std::endl;
-
-    float massScaleFactor = simulationState_.massScaleFactor.load();
+    // std::cout << "Updating " << numBodies << " bodies" << std::endl;
 
     // Find coordinate center to help with scaling
     Vector centerOfMass(0, 0, 0);
@@ -378,14 +405,14 @@ void OpenGLRenderer::updateBodies(Body *bodies, int numBodies)
         maxZ = std::max(maxZ, bodies[i].position.z);
 
         // Print first 10 bodies in detail
-        if (i < 10)
-        {
-            std::cout << "Body " << i
-                      << ": x=" << bodies[i].position.x
-                      << ", y=" << bodies[i].position.y
-                      << ", z=" << bodies[i].position.z
-                      << ", mass=" << bodies[i].mass << std::endl;
-        }
+        // if (i < 10)
+        // {
+        //     std::cout << "Body " << i
+        //               << ": x=" << bodies[i].position.x
+        //               << ", y=" << bodies[i].position.y
+        //               << ", z=" << bodies[i].position.z
+        //               << ", mass=" << bodies[i].mass << std::endl;
+        // }
     }
 
     // Normalize center of mass
@@ -393,15 +420,15 @@ void OpenGLRenderer::updateBodies(Body *bodies, int numBodies)
     centerOfMass.y /= totalMass;
     centerOfMass.z /= totalMass;
 
-    std::cout << "Center of Mass: "
-              << "x=" << centerOfMass.x
-              << ", y=" << centerOfMass.y
-              << ", z=" << centerOfMass.z << std::endl;
+    // std::cout << "Center of Mass: "
+    //           << "x=" << centerOfMass.x
+    //           << ", y=" << centerOfMass.y
+    //           << ", z=" << centerOfMass.z << std::endl;
 
-    std::cout << "Coordinate Ranges:" << std::endl;
-    std::cout << "X: " << minX << " to " << maxX << std::endl;
-    std::cout << "Y: " << minY << " to " << maxY << std::endl;
-    std::cout << "Z: " << minZ << " to " << maxZ << std::endl;
+    // std::cout << "Coordinate Ranges:" << std::endl;
+    // std::cout << "X: " << minX << " to " << maxX << std::endl;
+    // std::cout << "Y: " << minY << " to " << maxY << std::endl;
+    // std::cout << "Z: " << minZ << " to " << maxZ << std::endl;
 
     // Prepare vector for combined position and mass data
     std::vector<float> combinedData;
@@ -426,8 +453,7 @@ void OpenGLRenderer::updateBodies(Body *bodies, int numBodies)
         combinedData.push_back(normalizedZ);
 
         // Normalize mass logarithmically for visibility
-        float normalizedMass = static_cast<float>(log(std::max(bodies[i].mass, 1.0)) * massScaleFactor);
-        combinedData.push_back(normalizedMass);
+        float normalizedMass = static_cast<float>(log(std::max(bodies[i].mass, 1.0)) * 1.0);
     }
 
     numBodies_ = numBodies;
@@ -455,5 +481,5 @@ void OpenGLRenderer::updateBodies(Body *bodies, int numBodies)
     glBindVertexArray(0);
 
     // Debug print for rendering
-    std::cout << "Buffer updated with " << numBodies << " bodies" << std::endl;
+    // std::cout << "Buffer updated with " << numBodies << " bodies" << std::endl;
 }
