@@ -15,6 +15,7 @@
 #include "../include/simulation/sfc_barnes_hut.cuh"
 #include "../include/ui/simulation_state.h"
 #include "../include/ui/opengl_renderer.h"
+#include "../include/ui/simulation_ui_manager.h"
 
 // Logging function
 void logMessage(const std::string &message, bool isError = false)
@@ -49,112 +50,164 @@ void glfw_error_callback(int error, const char *description)
     logMessage("GLFW Error: " + std::string(description), true);
 }
 
+// OpenGL debug callback
+void APIENTRY glDebugOutput(GLenum source, GLenum type, GLuint id, GLenum severity,
+                            GLsizei length, const GLchar *message, const void *userParam)
+{
+    // Ignore non-significant error/warning codes
+    if (id == 131169 || id == 131185 || id == 131218 || id == 131204)
+        return;
+
+    std::cout << "OpenGL Debug: " << message << std::endl;
+}
+
 // Simulation thread function
 void simulationThread(SimulationState *state)
 {
-    SimulationBase *simulation = nullptr;
-    int currentNumBodies = state->numBodies.load();
-    bool currentUseSFC = state->useSFC.load();
-
-    // Create initial simulation
-    if (currentUseSFC)
+    try
     {
-        simulation = new SFCBarnesHut(currentNumBodies, true);
-    }
-    else
-    {
-        simulation = new BarnesHut(currentNumBodies);
-    }
+        SimulationBase *simulation = nullptr;
+        int currentNumBodies = state->numBodies.load();
+        bool currentUseSFC = state->useSFC.load();
 
-    // Setup initial conditions
-    simulation->setup();
-
-    // Variables for performance measurement
-    auto lastTime = std::chrono::steady_clock::now();
-    double frameTimeAccum = 0.0;
-    int frameCount = 0;
-
-    // Main simulation loop
-    while (state->running.load())
-    {
-        auto frameStart = std::chrono::steady_clock::now();
-
-        // If paused, wait and continue
-        if (state->isPaused.load())
+        // Create initial simulation
+        if (currentUseSFC)
         {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            lastTime = std::chrono::steady_clock::now();
-            continue;
+            simulation = new SFCBarnesHut(currentNumBodies, true);
+        }
+        else
+        {
+            simulation = new BarnesHut(currentNumBodies);
         }
 
-        // Check if simulation restart is needed
-        if (state->restart.load() ||
-            currentNumBodies != state->numBodies.load() ||
-            currentUseSFC != state->useSFC.load())
+        if (!simulation)
         {
-            // Update parameters
-            currentNumBodies = state->numBodies.load();
-            currentUseSFC = state->useSFC.load();
+            logMessage("Failed to create simulation", true);
+            return;
+        }
 
-            // Recreate the simulation
-            delete simulation;
+        // Setup initial conditions
+        simulation->setup();
 
-            if (currentUseSFC)
+        // Variables for performance measurement
+        auto lastTime = std::chrono::steady_clock::now();
+        double frameTimeAccum = 0.0;
+        int frameCount = 0;
+
+        // Main simulation loop
+        while (state->running.load())
+        {
+            auto frameStart = std::chrono::steady_clock::now();
+
+            // If paused, wait and continue
+            if (state->isPaused.load())
             {
-                simulation = new SFCBarnesHut(currentNumBodies, true);
-            }
-            else
-            {
-                simulation = new BarnesHut(currentNumBodies);
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                lastTime = std::chrono::steady_clock::now();
+                continue;
             }
 
-            simulation->setup();
-            state->restart.store(false);
+            // Check if simulation restart is needed
+            if (state->restart.load() ||
+                currentNumBodies != state->numBodies.load() ||
+                currentUseSFC != state->useSFC.load())
+            {
+                // Update parameters
+                currentNumBodies = state->numBodies.load();
+                currentUseSFC = state->useSFC.load();
 
-            // Reset time
-            lastTime = std::chrono::steady_clock::now();
+                // Recreate the simulation
+                delete simulation;
+                simulation = nullptr; // Avoid dangling pointer
+
+                try
+                {
+                    if (currentUseSFC)
+                    {
+                        simulation = new SFCBarnesHut(currentNumBodies, true);
+                    }
+                    else
+                    {
+                        simulation = new BarnesHut(currentNumBodies);
+                    }
+
+                    if (!simulation)
+                    {
+                        logMessage("Failed to recreate simulation", true);
+                        break;
+                    }
+
+                    simulation->setup();
+                }
+                catch (const std::exception &e)
+                {
+                    logMessage("Exception during simulation restart: " + std::string(e.what()), true);
+                    break;
+                }
+
+                state->restart.store(false);
+
+                // Reset time
+                lastTime = std::chrono::steady_clock::now();
+            }
+
+            // Update simulation
+            simulation->update();
+
+            // Read bodies from device
+            simulation->copyBodiesFromDevice();
+
+            // Update shared bodies for rendering
+            try
+            {
+                std::lock_guard<std::mutex> lock(state->mtx);
+
+                // Cleanup old data
+                delete[] state->sharedBodies;
+                state->sharedBodies = nullptr;
+
+                // Allocate and copy new data
+                state->sharedBodies = new Body[currentNumBodies];
+                memcpy(state->sharedBodies, simulation->getBodies(), currentNumBodies * sizeof(Body));
+                state->currentBodiesCount = currentNumBodies;
+            }
+            catch (const std::exception &e)
+            {
+                logMessage("Exception during body data update: " + std::string(e.what()), true);
+                break;
+            }
+
+            // Calculate performance metrics
+            auto now = std::chrono::steady_clock::now();
+            double frameTime = std::chrono::duration<double, std::milli>(now - frameStart).count();
+            state->lastIterationTime = frameTime;
+
+            frameTimeAccum += frameTime;
+            frameCount++;
+
+            if (std::chrono::duration<double>(now - lastTime).count() >= 1.0)
+            {
+                // Update FPS every second
+                state->fps = 1000.0 / (frameTimeAccum / frameCount);
+                frameTimeAccum = 0.0;
+                frameCount = 0;
+                lastTime = now;
+            }
+
+            // Limit speed to avoid overloading the GPU
+            if (frameTime < 16.67) // Approximately 60 FPS
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(16.67 - frameTime)));
+            }
         }
 
-        // Update simulation
-        simulation->update();
-
-        // Read bodies from device
-        simulation->copyBodiesFromDevice();
-
-        // Update shared bodies for rendering
-        state->mtx.lock();
-        delete[] state->sharedBodies;
-        state->sharedBodies = new Body[currentNumBodies];
-        memcpy(state->sharedBodies, simulation->getBodies(), currentNumBodies * sizeof(Body));
-        state->currentBodiesCount = currentNumBodies;
-        state->mtx.unlock();
-
-        // Calculate performance metrics
-        auto now = std::chrono::steady_clock::now();
-        double frameTime = std::chrono::duration<double, std::milli>(now - frameStart).count();
-        state->lastIterationTime = frameTime;
-
-        frameTimeAccum += frameTime;
-        frameCount++;
-
-        if (std::chrono::duration<double>(now - lastTime).count() >= 1.0)
-        {
-            // Update FPS every second
-            state->fps = 1000.0 / (frameTimeAccum / frameCount);
-            frameTimeAccum = 0.0;
-            frameCount = 0;
-            lastTime = now;
-        }
-
-        // Limit speed to avoid overloading the GPU
-        if (frameTime < 16.67) // Approximately 60 FPS
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(16.67 - frameTime)));
-        }
+        // Cleanup
+        delete simulation;
     }
-
-    // Cleanup
-    delete simulation;
+    catch (const std::exception &e)
+    {
+        logMessage("Fatal error in simulation thread: " + std::string(e.what()), true);
+    }
 }
 
 int main(int argc, char **argv)
@@ -174,17 +227,18 @@ int main(int argc, char **argv)
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
         glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+        glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE); // Debug context
 
         // Get primary monitor and video mode
         GLFWmonitor *monitor = glfwGetPrimaryMonitor();
         const GLFWvidmode *mode = glfwGetVideoMode(monitor);
 
-        // Create fullscreen window
+        // Create window (windowed mode for easier debugging)
         GLFWwindow *window = glfwCreateWindow(
-            mode->width,
-            mode->height,
+            1280,
+            720,
             "N-Body Simulation",
-            monitor, // Fullscreen
+            nullptr, // Windowed mode
             nullptr);
 
         if (!window)
@@ -204,6 +258,10 @@ int main(int argc, char **argv)
             logMessage("Failed to initialize GLAD", true);
             return -1;
         }
+
+        logMessage("OpenGL Version: " + std::string((char *)glGetString(GL_VERSION)));
+        logMessage("GLSL Version: " + std::string((char *)glGetString(GL_SHADING_LANGUAGE_VERSION)));
+        logMessage("Renderer: " + std::string((char *)glGetString(GL_RENDERER)));
 
         // OpenGL configuration
         glEnable(GL_DEPTH_TEST);
@@ -236,6 +294,9 @@ int main(int argc, char **argv)
         OpenGLRenderer renderer(simulationState);
         renderer.init();
 
+        // Create UI manager
+        SimulationUIManager uiManager(simulationState);
+
         // Set global simulation state for callbacks
         g_simulationState = &simulationState;
 
@@ -249,14 +310,15 @@ int main(int argc, char **argv)
             glfwPollEvents();
 
             // Render bodies if available
-            simulationState.mtx.lock();
-            if (simulationState.sharedBodies)
             {
-                renderer.updateBodies(
-                    simulationState.sharedBodies,
-                    simulationState.currentBodiesCount);
+                std::lock_guard<std::mutex> lock(simulationState.mtx);
+                if (simulationState.sharedBodies && simulationState.currentBodiesCount > 0)
+                {
+                    renderer.updateBodies(
+                        simulationState.sharedBodies,
+                        simulationState.currentBodiesCount);
+                }
             }
-            simulationState.mtx.unlock();
 
             // Get window dimensions
             int width, height;
@@ -266,43 +328,8 @@ int main(int argc, char **argv)
             // Render bodies
             renderer.render(aspectRatio);
 
-            // Start ImGui frame
-            ImGui_ImplOpenGL3_NewFrame();
-            ImGui_ImplGlfw_NewFrame();
-            ImGui::NewFrame();
-
-            // Render simulation UI
-            ImGui::Begin("Simulation Controls");
-
-            // Basic simulation info
-            ImGui::Text("Bodies: %d", simulationState.numBodies.load());
-            ImGui::Text("FPS: %.1f", simulationState.fps);
-
-            // Simulation controls
-            if (ImGui::Button("Pause/Resume"))
-            {
-                simulationState.isPaused.store(!simulationState.isPaused.load());
-            }
-
-            ImGui::SameLine();
-            if (ImGui::Button("Restart"))
-            {
-                simulationState.restart.store(true);
-            }
-
-            // SFC Toggle
-            bool sfcEnabled = simulationState.useSFC.load();
-            if (ImGui::Checkbox("Space-Filling Curve", &sfcEnabled))
-            {
-                simulationState.useSFC.store(sfcEnabled);
-                simulationState.restart.store(true);
-            }
-
-            ImGui::End();
-
-            // Render ImGui
-            ImGui::Render();
-            ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+            // Render UI
+            uiManager.renderUI(window);
 
             // Swap front and back buffers
             glfwSwapBuffers(window);

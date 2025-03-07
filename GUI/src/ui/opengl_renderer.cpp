@@ -1,4 +1,4 @@
-#include "opengl_renderer.h"
+#include "../../include/ui/opengl_renderer.h"
 #include <iostream>
 
 const char *vertexShaderSource = R"(
@@ -12,16 +12,43 @@ const char *vertexShaderSource = R"(
     uniform float uScaleFactor;
 
     out float vMass;
+    out float vDistance;
 
     void main() {
-        // Escalar las coordenadas
+        // Scale coordinates - apply scale factor to handle astronomical distances
         vec3 scaledPos = aPosition * uScaleFactor;
-        gl_Position = uProjection * uView * vec4(scaledPos, 1.0);
         
-        // Ajustar tamaño del punto basado en la masa
-        float pointScale = log(aMass + 1.0) * 0.5;
-        gl_PointSize = uPointSize * (1.0 + pointScale);
+        // Calculate position in view space
+        vec4 viewPos = uView * vec4(scaledPos, 1.0);
         
+        // Calculate distance from camera (for falloff effects)
+        vDistance = length(viewPos.xyz);
+        
+        // Calculate final position
+        gl_Position = uProjection * viewPos;
+        
+        // Adjust point size based on mass and distance
+        // For the sun (very massive objects)
+        float massScale = 1.0;
+        if (aMass > 1.0e28) {
+            massScale = 4.0; // Make the sun larger
+        }
+        else if (aMass > 1.0e24) {
+            massScale = 2.0; // Make planets visible
+        }
+        else {
+            // For smaller objects, scale by mass logarithmically
+            massScale = log(aMass / 1.0e20) * 0.2;
+            if (massScale < 0.1) massScale = 0.1;
+        }
+        
+        // Apply distance attenuation - closer objects appear larger
+        float distanceScale = 10.0 / (1.0 + vDistance * 0.00001);
+        
+        // Combine all scaling factors
+        gl_PointSize = uPointSize * massScale * clamp(distanceScale, 0.1, 5.0);
+        
+        // Pass mass to fragment shader
         vMass = aMass;
     }
 )";
@@ -30,18 +57,57 @@ const char *vertexShaderSource = R"(
 const char *fragmentShaderSource = R"(
     #version 330 core
     in float vMass;
+    in float vDistance;
     out vec4 FragColor;
 
     void main() {
-        // Gradiente de color basado en la masa
-        float normalizedMass = clamp(log(vMass / 1e24) / 5.0, 0.0, 1.0);
-        vec3 bodyColor = mix(
-            vec3(0.2, 0.4, 1.0),   // Azul para cuerpos pequeños
-            vec3(1.0, 0.6, 0.2),   // Naranja para cuerpos grandes
-            normalizedMass
-        );
+        // Determine body type based on mass
+        vec3 bodyColor;
+        float glowIntensity;
+        float coreBrightness;
         
-        // Crear punto circular suave
+        // Sun-like bodies (very massive)
+        if (vMass > 1.0e28) {
+            // Yellow-white for sun
+            bodyColor = vec3(1.0, 0.9, 0.7);
+            glowIntensity = 0.8;
+            coreBrightness = 1.0;
+        }
+        // Planet-sized bodies
+        else if (vMass > 1.0e24) {
+            // Use a color gradient based on exact mass
+            float t = (log(vMass) - log(1.0e24)) / (log(1.0e28) - log(1.0e24));
+            
+            // Create a spectrum of planet colors
+            if (t < 0.2) {
+                bodyColor = mix(vec3(0.2, 0.2, 0.8), vec3(0.2, 0.5, 0.8), t*5.0); // Blue/ocean planets
+            } else if (t < 0.4) {
+                bodyColor = mix(vec3(0.2, 0.5, 0.8), vec3(0.2, 0.7, 0.4), (t-0.2)*5.0); // Blue-green planets
+            } else if (t < 0.6) {
+                bodyColor = mix(vec3(0.2, 0.7, 0.4), vec3(0.7, 0.7, 0.2), (t-0.4)*5.0); // Green to yellow planets
+            } else if (t < 0.8) {
+                bodyColor = mix(vec3(0.7, 0.7, 0.2), vec3(0.8, 0.4, 0.2), (t-0.6)*5.0); // Yellow to red planets
+            } else {
+                bodyColor = mix(vec3(0.8, 0.4, 0.2), vec3(0.6, 0.3, 0.1), (t-0.8)*5.0); // Reddish planets
+            }
+            
+            glowIntensity = 0.3;
+            coreBrightness = 0.8;
+        }
+        // Small bodies (asteroids, etc.)
+        else {
+            // Gray to white for small bodies
+            float smallBodyFactor = clamp(log(vMass / 1.0e20) / 10.0, 0.0, 1.0);
+            bodyColor = mix(
+                vec3(0.5, 0.5, 0.5),   // Gray for very small bodies
+                vec3(0.7, 0.7, 0.8),   // Light blue-gray for larger small bodies
+                smallBodyFactor
+            );
+            glowIntensity = 0.1;
+            coreBrightness = 0.6;
+        }
+        
+        // Create circular point with glow effect
         vec2 circCoord = 2.0 * gl_PointCoord - 1.0;
         float distSquared = dot(circCoord, circCoord);
         
@@ -49,10 +115,26 @@ const char *fragmentShaderSource = R"(
             discard;
         }
         
-        // Gradiente de transparencia suave
-        float alpha = 1.0 - smoothstep(0.7, 1.0, distSquared);
+        // Core and glow effect
+        float coreFactor = 1.0 - smoothstep(0.0, 0.4, distSquared);
+        float glowFactor = 1.0 - smoothstep(0.4, 1.0, distSquared);
         
-        FragColor = vec4(bodyColor, alpha);
+        // Combine core and glow
+        vec3 finalColor = mix(
+            bodyColor * glowIntensity,
+            bodyColor * coreBrightness,
+            coreFactor
+        );
+        
+        // Adjust alpha based on distance from center
+        float alpha = mix(glowIntensity, 1.0, coreFactor);
+        
+        // Distance fade effect for small bodies
+        if (vMass < 1.0e24) {
+            alpha *= clamp(1.0 - (vDistance * 0.0000001), 0.1, 1.0);
+        }
+        
+        FragColor = vec4(finalColor, alpha);
     }
 )";
 
@@ -98,17 +180,23 @@ GLuint OpenGLRenderer::compileShader(GLenum type, const char *source)
 
 void OpenGLRenderer::createShaderProgram()
 {
-    // Compilar shaders
+    // Compile shaders
     GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexShaderSource);
     GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSource);
 
-    // Crear programa de shader
+    if (!vertexShader || !fragmentShader)
+    {
+        std::cerr << "Failed to compile shaders" << std::endl;
+        return;
+    }
+
+    // Create shader program
     shaderProgram_ = glCreateProgram();
     glAttachShader(shaderProgram_, vertexShader);
     glAttachShader(shaderProgram_, fragmentShader);
     glLinkProgram(shaderProgram_);
 
-    // Verificar errores de enlace
+    // Check for linking errors
     GLint success;
     GLchar infoLog[512];
     glGetProgramiv(shaderProgram_, GL_LINK_STATUS, &success);
@@ -119,31 +207,91 @@ void OpenGLRenderer::createShaderProgram()
                   << infoLog << std::endl;
     }
 
-    // Limpiar shaders individuales
+    // Clean up individual shaders
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 }
 
 void OpenGLRenderer::setupBuffers()
 {
-    // Crear VAO y VBO
+    // Create VAO and VBO
     glGenVertexArrays(1, &VAO_);
     glGenBuffers(1, &VBO_);
+}
 
+void OpenGLRenderer::init()
+{
+    // Basic OpenGL configuration
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_PROGRAM_POINT_SIZE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    // Set point parameters for smoother rendering
+    glEnable(GL_POINT_SMOOTH);
+    glHint(GL_POINT_SMOOTH_HINT, GL_NICEST);
+
+    // Create the shader program
+    createShaderProgram();
+
+    // Setup buffers
+    setupBuffers();
+
+    // Initial camera/view settings
+    simulationState_.zoomFactor.store(1.0);
+    simulationState_.offsetX = 0.0;
+    simulationState_.offsetY = 0.0;
+
+    std::cout << "OpenGL Renderer initialized successfully" << std::endl;
+    std::cout << "Shader program ID: " << shaderProgram_ << std::endl;
+}
+
+void OpenGLRenderer::updateBodies(Body *bodies, int numBodies)
+{
+    if (numBodies <= 0 || !bodies)
+    {
+        std::cerr << "Warning: No bodies to update or invalid data." << std::endl;
+        return;
+    }
+
+    // Debug first few bodies
+    std::cout << "Updating " << numBodies << " bodies" << std::endl;
+    std::cout << "First body: x=" << bodies[0].position.x
+              << ", y=" << bodies[0].position.y
+              << ", z=" << bodies[0].position.z << std::endl;
+
+    // Prepare vector for combined position and mass data
+    std::vector<float> combinedData;
+    combinedData.reserve(numBodies * 4); // xyz + mass
+
+    for (int i = 0; i < numBodies; ++i)
+    {
+        // Add coordinates
+        combinedData.push_back(static_cast<float>(bodies[i].position.x));
+        combinedData.push_back(static_cast<float>(bodies[i].position.y));
+        combinedData.push_back(static_cast<float>(bodies[i].position.z));
+
+        // Add mass
+        combinedData.push_back(static_cast<float>(bodies[i].mass));
+    }
+
+    numBodies_ = numBodies;
+
+    // Bind and update buffer data
     glBindVertexArray(VAO_);
     glBindBuffer(GL_ARRAY_BUFFER, VBO_);
 
-    // Alocar espacio para posiciones y masa
+    // Reallocate buffer if size changed
     glBufferData(GL_ARRAY_BUFFER,
-                 bodyPositions_.size() * (3 * sizeof(float) + sizeof(float)),
-                 nullptr, GL_DYNAMIC_DRAW);
+                 combinedData.size() * sizeof(float),
+                 combinedData.data(), GL_DYNAMIC_DRAW);
 
-    // Configurar atributos de posición
+    // Configure vertex attributes
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE,
                           4 * sizeof(float), (void *)0);
     glEnableVertexAttribArray(0);
 
-    // Configurar atributos de masa
+    // Configure mass attribute
     glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE,
                           4 * sizeof(float), (void *)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
@@ -152,107 +300,80 @@ void OpenGLRenderer::setupBuffers()
     glBindVertexArray(0);
 }
 
-void OpenGLRenderer::init()
-{
-    // Configuraciones básicas de OpenGL
-    glEnable(GL_DEPTH_TEST);
-    glEnable(GL_PROGRAM_POINT_SIZE);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-}
-
-void OpenGLRenderer::updateBodies(Body *bodies, int numBodies)
-{
-    // Preparar vector para datos combinados de posición y masa
-    std::vector<float> combinedData;
-    combinedData.reserve(numBodies * 4);
-
-    for (int i = 0; i < numBodies; ++i)
-    {
-        // Añadir coordenadas
-        combinedData.push_back(bodies[i].position.x);
-        combinedData.push_back(bodies[i].position.y);
-        combinedData.push_back(bodies[i].position.z);
-
-        // Añadir masa
-        combinedData.push_back(bodies[i].mass);
-    }
-
-    numBodies_ = numBodies;
-
-    // Si los buffers ya existen, actualizar
-    if (VAO_ && VBO_)
-    {
-        glBindBuffer(GL_ARRAY_BUFFER, VBO_);
-        glBufferSubData(GL_ARRAY_BUFFER, 0,
-                        combinedData.size() * sizeof(float),
-                        combinedData.data());
-    }
-    else
-    {
-        // Preparar buffers si aún no se han creado
-        bodyPositions_.resize(numBodies);
-        setupBuffers();
-
-        glBindBuffer(GL_ARRAY_BUFFER, VBO_);
-        glBufferSubData(GL_ARRAY_BUFFER, 0,
-                        combinedData.size() * sizeof(float),
-                        combinedData.data());
-    }
-}
-
 void OpenGLRenderer::render(float aspectRatio)
 {
-    if (numBodies_ == 0)
+    if (numBodies_ == 0 || shaderProgram_ == 0)
         return;
 
-    std::cout << "Renderizando " << numBodies_ << " cuerpos" << std::endl;
-    std::cout << "Primera posición: ("
-        << bodyPositions_[2].x << ", "
-        << bodyPositions_[2].y << ", "
-        << bodyPositions_[2].z << ")" << std::endl;
-
-    // Limpiar buffers
+    // Clear buffers with a nice dark background
+    glClearColor(0.0f, 0.0f, 0.1f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    // Usar programa de shader
+    // Use shader program
     glUseProgram(shaderProgram_);
 
-    // Crear matriz de proyección
+    // Create projection matrix with modified parameters for astronomical scale
     glm::mat4 projection = glm::perspective(
-        glm::radians(45.0f), // Campo de visión
-        aspectRatio,         // Relación de aspecto
-        1.0f,                // Plano cercano
-        1.0e16f              // Plano lejano extendido
+        glm::radians(45.0f), // Field of view
+        aspectRatio,         // Aspect ratio
+        0.1f,                // Near plane (reduced to see closer objects)
+        1.0e20f              // Far plane (increased for astronomical distances)
     );
 
-    // Crear matriz de vista
+    // Get camera parameters from simulation state
     float zoomFactor = simulationState_.zoomFactor.load();
+    float offsetX = simulationState_.offsetX;
+    float offsetY = simulationState_.offsetY;
+
+    // Create view matrix with adjusted camera position
+    // Bring camera closer to see more detail
     glm::mat4 view = glm::lookAt(
-        glm::vec3(0.0f, 0.0f, 5.0e14f / zoomFactor), // Posición de la cámara
-        glm::vec3(0.0f, 0.0f, 0.0f),                 // Mirar al origen
-        glm::vec3(0.0f, 1.0f, 0.0f)                  // Vector hacia arriba
+        glm::vec3(offsetX, offsetY, 5.0e12f / zoomFactor), // Camera position
+        glm::vec3(offsetX, offsetY, 0.0f),                 // Look at offset origin
+        glm::vec3(0.0f, 1.0f, 0.0f)                        // Up vector
     );
 
-    // Factor de escala para ajustar las coordenadas
-    float scaleFactor = 1.0e-11f;
+    // Scale factor for adjusting astronomical coordinates to visible range
+    // Increase this value to make bodies appear closer together
+    float scaleFactor = 5.0e-12f * zoomFactor;
 
-    // Configurar uniforms
+    // Set uniforms
     GLint projLoc = glGetUniformLocation(shaderProgram_, "uProjection");
     GLint viewLoc = glGetUniformLocation(shaderProgram_, "uView");
     GLint pointSizeLoc = glGetUniformLocation(shaderProgram_, "uPointSize");
     GLint scaleFactorLoc = glGetUniformLocation(shaderProgram_, "uScaleFactor");
 
+    if (projLoc == -1 || viewLoc == -1 || pointSizeLoc == -1 || scaleFactorLoc == -1)
+    {
+        std::cerr << "Warning: One or more shader uniforms not found" << std::endl;
+    }
+
     glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
-    glUniform1f(pointSizeLoc, 10.0f);         // Tamaño base de punto
-    glUniform1f(scaleFactorLoc, scaleFactor); // Factor de escala
 
-    // Dibujar puntos
+    // Adjust point size based on zoom to maintain perceived size
+    glUniform1f(pointSizeLoc, 5.0f + (zoomFactor * 0.5f));
+    glUniform1f(scaleFactorLoc, scaleFactor);
+
+    // Enable point sprite features
+    glEnable(GL_POINT_SPRITE);
+    glEnable(GL_PROGRAM_POINT_SIZE);
+
+    // Draw points
     glBindVertexArray(VAO_);
     glDrawArrays(GL_POINTS, 0, numBodies_);
 
-    // Limpiar
+    // Print camera info for debugging
+    static int frameCount = 0;
+    if (frameCount % 60 == 0)
+    { // Print every 60 frames to reduce spam
+        std::cout << "Camera position: z=" << (5.0e12f / zoomFactor)
+                  << ", zoom=" << zoomFactor
+                  << ", scale=" << scaleFactor << std::endl;
+    }
+    frameCount++;
+
+    // Cleanup
     glBindVertexArray(0);
     glUseProgram(0);
 }
