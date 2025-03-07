@@ -17,6 +17,12 @@
 #include "../include/ui/opengl_renderer.h"
 #include "../include/ui/simulation_ui_manager.h"
 
+// NVIDIA GPU selection hint for Linux
+extern "C"
+{
+    __attribute__((visibility("default"))) int NvOptimusEnablement = 1;
+}
+
 // Logging function
 void logMessage(const std::string &message, bool isError = false)
 {
@@ -214,6 +220,7 @@ int main(int argc, char **argv)
 {
     try
     {
+        std::cout << "Attempting to use dedicated GPU..." << std::endl;
         // Initialize GLFW
         glfwSetErrorCallback(glfw_error_callback);
         if (!glfwInit())
@@ -223,11 +230,12 @@ int main(int argc, char **argv)
         }
 
         // OpenGL and window hints
+        // En el método de inicialización de GLFW
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-        glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-        glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE); // Debug context
+        glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+        glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_NATIVE_CONTEXT_API);
 
         // Get primary monitor and video mode
         GLFWmonitor *monitor = glfwGetPrimaryMonitor();

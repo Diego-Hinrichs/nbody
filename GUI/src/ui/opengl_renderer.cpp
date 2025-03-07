@@ -221,31 +221,237 @@ void OpenGLRenderer::setupBuffers()
 
 void OpenGLRenderer::init()
 {
-    // Basic OpenGL configuration
-    glEnable(GL_DEPTH_TEST);
-    glEnable(GL_PROGRAM_POINT_SIZE);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    // Extensive OpenGL context and capability checking
+    std::cout << "OpenGL Initialization Details:" << std::endl;
+    
+    // Print OpenGL context information
+    std::cout << "OpenGL Version: " << glGetString(GL_VERSION) << std::endl;
+    std::cout << "OpenGL Renderer: " << glGetString(GL_RENDERER) << std::endl;
+    std::cout << "OpenGL Vendor: " << glGetString(GL_VENDOR) << std::endl;
+    std::cout << "GLSL Version: " << glGetString(GL_SHADING_LANGUAGE_VERSION) << std::endl;
 
-    // Set point parameters for smoother rendering
-    glEnable(GL_POINT_SMOOTH);
-    glHint(GL_POINT_SMOOTH_HINT, GL_NICEST);
+    // Check OpenGL capabilities
+    GLint maxVertexAttribs, maxTextureUnits, maxTextureSize;
+    glGetIntegerv(GL_MAX_VERTEX_ATTRIBS, &maxVertexAttribs);
+    glGetIntegerv(GL_MAX_TEXTURE_UNITS, &maxTextureUnits);
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTextureSize);
 
-    // Create the shader program
-    createShaderProgram();
+    std::cout << "Max Vertex Attributes: " << maxVertexAttribs << std::endl;
+    std::cout << "Max Texture Units: " << maxTextureUnits << std::endl;
+    std::cout << "Max Texture Size: " << maxTextureSize << std::endl;
 
-    // Setup buffers
-    setupBuffers();
+    // Validate OpenGL error state before initialization
+    GLenum err = glGetError();
+    if (err != GL_NO_ERROR) 
+    {
+        std::cerr << "OpenGL error before initialization: " << err << std::endl;
+    }
 
-    // Initial camera/view settings
-    simulationState_.zoomFactor.store(1.0);
-    simulationState_.offsetX = 0.0;
-    simulationState_.offsetY = 0.0;
+    // Advanced OpenGL configuration
+    try 
+    {
+        // Basic OpenGL configuration with extensive error checking
+        glEnable(GL_DEPTH_TEST);
+        err = glGetError();
+        if (err != GL_NO_ERROR) 
+            std::cerr << "Error enabling depth test: " << err << std::endl;
 
-    std::cout << "OpenGL Renderer initialized successfully" << std::endl;
-    std::cout << "Shader program ID: " << shaderProgram_ << std::endl;
+        glEnable(GL_PROGRAM_POINT_SIZE);
+        err = glGetError();
+        if (err != GL_NO_ERROR) 
+            std::cerr << "Error enabling point size: " << err << std::endl;
+
+        glEnable(GL_BLEND);
+        err = glGetError();
+        if (err != GL_NO_ERROR) 
+            std::cerr << "Error enabling blending: " << err << std::endl;
+
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        err = glGetError();
+        if (err != GL_NO_ERROR) 
+            std::cerr << "Error setting blend function: " << err << std::endl;
+
+        // Point rendering optimizations
+        glEnable(GL_POINT_SMOOTH);
+        glHint(GL_POINT_SMOOTH_HINT, GL_NICEST);
+        err = glGetError();
+        if (err != GL_NO_ERROR) 
+            std::cerr << "Error configuring point rendering: " << err << std::endl;
+
+        // Create the shader program with comprehensive error checking
+        createShaderProgram();
+
+        // Setup buffers with detailed logging
+        setupBuffers();
+
+        // Validate vertex array and buffer creation
+        if (VAO_ == 0) 
+            std::cerr << "Failed to create Vertex Array Object (VAO)" << std::endl;
+        if (VBO_ == 0) 
+            std::cerr << "Failed to create Vertex Buffer Object (VBO)" << std::endl;
+
+        // Initial camera/view settings
+        simulationState_.zoomFactor.store(1.0);
+        simulationState_.offsetX = 0.0;
+        simulationState_.offsetY = 0.0;
+
+        std::cout << "OpenGL Renderer initialized successfully" << std::endl;
+        std::cout << "Shader program ID: " << shaderProgram_ << std::endl;
+    }
+    catch (const std::exception& e)
+    {
+        std::cerr << "Exception during OpenGL initialization: " 
+                  << e.what() << std::endl;
+    }
+    
+    // Final error check
+    err = glGetError();
+    if (err != GL_NO_ERROR) 
+    {
+        std::cerr << "Unhandled OpenGL error during initialization: " << err << std::endl;
+    }
 }
 
+void OpenGLRenderer::render(float aspectRatio)
+{
+    if (numBodies_ == 0 || shaderProgram_ == 0)
+    {
+        std::cerr << "Rendering conditions not met: "
+                  << "numBodies=" << numBodies_
+                  << ", shaderProgram=" << shaderProgram_ << std::endl;
+        return;
+    }
+
+    // Extensive debugging of shader program
+    std::cout << "Shader Program Details:" << std::endl;
+    GLint status;
+    glGetProgramiv(shaderProgram_, GL_LINK_STATUS, &status);
+    if (status == GL_FALSE)
+    {
+        GLint infoLogLength;
+        glGetProgramiv(shaderProgram_, GL_INFO_LOG_LENGTH, &infoLogLength);
+        std::vector<char> infoLog(infoLogLength);
+        glGetProgramInfoLog(shaderProgram_, infoLogLength, NULL, &infoLog[0]);
+        std::cerr << "Shader Program Link Error: "
+                  << std::string(infoLog.begin(), infoLog.end()) << std::endl;
+        return;
+    }
+
+    // Validate shader program
+    glValidateProgram(shaderProgram_);
+    GLint validateStatus;
+    glGetProgramiv(shaderProgram_, GL_VALIDATE_STATUS, &validateStatus);
+    if (validateStatus == GL_FALSE)
+    {
+        GLint infoLogLength;
+        glGetProgramiv(shaderProgram_, GL_INFO_LOG_LENGTH, &infoLogLength);
+        std::vector<char> infoLog(infoLogLength);
+        glGetProgramInfoLog(shaderProgram_, infoLogLength, NULL, &infoLog[0]);
+        std::cerr << "Shader Program Validation Error: "
+                  << std::string(infoLog.begin(), infoLog.end()) << std::endl;
+        return;
+    }
+
+    // Explicitly use the shader program
+    glUseProgram(shaderProgram_);
+
+    // Verify the program is now in use
+    GLint currentProgram;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &currentProgram);
+    if (currentProgram != shaderProgram_)
+    {
+        std::cerr << "Failed to activate shader program!"
+                  << " Expected: " << shaderProgram_
+                  << ", Current: " << currentProgram << std::endl;
+        return;
+    }
+
+    // Clear buffers with a nice dark background
+    glClearColor(0.0f, 0.0f, 0.1f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    // Create projection matrix with modified parameters for astronomical scale
+    glm::mat4 projection = glm::perspective(
+        glm::radians(45.0f), // Field of view
+        aspectRatio,         // Aspect ratio
+        0.1f,                // Near plane (reduced to see closer objects)
+        1.0e20f              // Far plane (increased for astronomical distances)
+    );
+
+    // Get camera parameters from simulation state
+    float zoomFactor = simulationState_.zoomFactor.load();
+    float offsetX = simulationState_.offsetX;
+    float offsetY = simulationState_.offsetY;
+
+    // Create view matrix with adjusted camera position
+    // Bring camera closer to see more detail
+    glm::mat4 view = glm::lookAt(
+        glm::vec3(offsetX, offsetY, 5.0e12f / zoomFactor), // Camera position
+        glm::vec3(offsetX, offsetY, 0.0f),                 // Look at offset origin
+        glm::vec3(0.0f, 1.0f, 0.0f)                        // Up vector
+    );
+
+    // Scale factor for adjusting astronomical coordinates to visible range
+    // Increase this value to make bodies appear closer together
+    float scaleFactor = 5.0e-12f * zoomFactor;
+
+    // Locate uniform variables
+    GLint projLoc = glGetUniformLocation(shaderProgram_, "uProjection");
+    GLint viewLoc = glGetUniformLocation(shaderProgram_, "uView");
+    GLint pointSizeLoc = glGetUniformLocation(shaderProgram_, "uPointSize");
+    GLint scaleFactorLoc = glGetUniformLocation(shaderProgram_, "uScaleFactor");
+
+    // Check if uniform locations are valid
+    if (projLoc == -1 || viewLoc == -1 || pointSizeLoc == -1 || scaleFactorLoc == -1)
+    {
+        std::cerr << "Warning: One or more shader uniforms not found"
+                  << " Projection: " << projLoc
+                  << ", View: " << viewLoc
+                  << ", PointSize: " << pointSizeLoc
+                  << ", ScaleFactor: " << scaleFactorLoc << std::endl;
+    }
+
+    // Set uniform values
+    glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
+    glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+    glUniform1f(pointSizeLoc, 5.0f + (zoomFactor * 0.5f));
+    glUniform1f(scaleFactorLoc, scaleFactor);
+
+    // Enable point sprite features
+    glEnable(GL_POINT_SPRITE);
+    glEnable(GL_PROGRAM_POINT_SIZE);
+
+    // Verify VAO and draw
+    if (VAO_ == 0)
+    {
+        std::cerr << "Invalid VAO before rendering" << std::endl;
+        return;
+    }
+
+    // Bind VAO and draw points
+    glBindVertexArray(VAO_);
+
+    // Check for OpenGL errors before drawing
+    GLenum err = glGetError();
+    if (err != GL_NO_ERROR)
+    {
+        std::cerr << "OpenGL error before drawing: " << err << std::endl;
+    }
+
+    // Draw the points
+    glDrawArrays(GL_POINTS, 0, numBodies_);
+
+    // Check for OpenGL errors after drawing
+    err = glGetError();
+    if (err != GL_NO_ERROR)
+    {
+        std::cerr << "OpenGL error during drawing: " << err << std::endl;
+    }
+
+    // Cleanup
+    glBindVertexArray(0);
+    glUseProgram(0);
+}
 void OpenGLRenderer::updateBodies(Body *bodies, int numBodies)
 {
     if (numBodies <= 0 || !bodies)
@@ -254,11 +460,41 @@ void OpenGLRenderer::updateBodies(Body *bodies, int numBodies)
         return;
     }
 
-    // Debug first few bodies
+    // Extensive debug information
     std::cout << "Updating " << numBodies << " bodies" << std::endl;
-    std::cout << "First body: x=" << bodies[0].position.x
-              << ", y=" << bodies[0].position.y
-              << ", z=" << bodies[0].position.z << std::endl;
+    std::cout << "Coordinate ranges:" << std::endl;
+
+    double minX = std::numeric_limits<double>::max();
+    double maxX = std::numeric_limits<double>::lowest();
+    double minY = std::numeric_limits<double>::max();
+    double maxY = std::numeric_limits<double>::lowest();
+    double minZ = std::numeric_limits<double>::max();
+    double maxZ = std::numeric_limits<double>::lowest();
+
+    for (int i = 0; i < numBodies; ++i)
+    {
+        minX = std::min(minX, bodies[i].position.x);
+        maxX = std::max(maxX, bodies[i].position.x);
+        minY = std::min(minY, bodies[i].position.y);
+        maxY = std::max(maxY, bodies[i].position.y);
+        minZ = std::min(minZ, bodies[i].position.z);
+        maxZ = std::max(maxZ, bodies[i].position.z);
+
+        // Print first 10 bodies in detail
+        if (i < 10)
+        {
+            std::cout << "Body " << i
+                      << ": x=" << bodies[i].position.x
+                      << ", y=" << bodies[i].position.y
+                      << ", z=" << bodies[i].position.z
+                      << ", mass=" << bodies[i].mass << std::endl;
+        }
+    }
+
+    std::cout << "Coordinate Ranges:" << std::endl;
+    std::cout << "X: " << minX << " to " << maxX << std::endl;
+    std::cout << "Y: " << minY << " to " << maxY << std::endl;
+    std::cout << "Z: " << minZ << " to " << maxZ << std::endl;
 
     // Prepare vector for combined position and mass data
     std::vector<float> combinedData;
@@ -298,82 +534,224 @@ void OpenGLRenderer::updateBodies(Body *bodies, int numBodies)
 
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
+
+    // Debug print for rendering
+    std::cout << "Buffer updated with " << numBodies << " bodies" << std::endl;
 }
 
-void OpenGLRenderer::render(float aspectRatio)
-{
-    if (numBodies_ == 0 || shaderProgram_ == 0)
-        return;
+// void OpenGLRenderer::updateBodies(Body *bodies, int numBodies)
+// {
+//     if (numBodies <= 0 || !bodies)
+//     {
+//         std::cerr << "Warning: No bodies to update or invalid data." << std::endl;
+//         return;
+//     }
 
-    // Clear buffers with a nice dark background
-    glClearColor(0.0f, 0.0f, 0.1f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+//     // Extensive debug information
+//     std::cout << "Updating " << numBodies << " bodies" << std::endl;
+//     std::cout << "Coordinate ranges:" << std::endl;
 
-    // Use shader program
-    glUseProgram(shaderProgram_);
+//     double minX = std::numeric_limits<double>::max();
+//     double maxX = std::numeric_limits<double>::lowest();
+//     double minY = std::numeric_limits<double>::max();
+//     double maxY = std::numeric_limits<double>::lowest();
+//     double minZ = std::numeric_limits<double>::max();
+//     double maxZ = std::numeric_limits<double>::lowest();
 
-    // Create projection matrix with modified parameters for astronomical scale
-    glm::mat4 projection = glm::perspective(
-        glm::radians(45.0f), // Field of view
-        aspectRatio,         // Aspect ratio
-        0.1f,                // Near plane (reduced to see closer objects)
-        1.0e20f              // Far plane (increased for astronomical distances)
-    );
+//     for (int i = 0; i < numBodies; ++i)
+//     {
+//         minX = std::min(minX, bodies[i].position.x);
+//         maxX = std::max(maxX, bodies[i].position.x);
+//         minY = std::min(minY, bodies[i].position.y);
+//         maxY = std::max(maxY, bodies[i].position.y);
+//         minZ = std::min(minZ, bodies[i].position.z);
+//         maxZ = std::max(maxZ, bodies[i].position.z);
 
-    // Get camera parameters from simulation state
-    float zoomFactor = simulationState_.zoomFactor.load();
-    float offsetX = simulationState_.offsetX;
-    float offsetY = simulationState_.offsetY;
+//         // Print first 10 bodies in detail
+//         if (i < 10)
+//         {
+//             std::cout << "Body " << i
+//                       << ": x=" << bodies[i].position.x
+//                       << ", y=" << bodies[i].position.y
+//                       << ", z=" << bodies[i].position.z
+//                       << ", mass=" << bodies[i].mass << std::endl;
+//         }
+//     }
 
-    // Create view matrix with adjusted camera position
-    // Bring camera closer to see more detail
-    glm::mat4 view = glm::lookAt(
-        glm::vec3(offsetX, offsetY, 5.0e12f / zoomFactor), // Camera position
-        glm::vec3(offsetX, offsetY, 0.0f),                 // Look at offset origin
-        glm::vec3(0.0f, 1.0f, 0.0f)                        // Up vector
-    );
+//     std::cout << "Coordinate Ranges:" << std::endl;
+//     std::cout << "X: " << minX << " to " << maxX << std::endl;
+//     std::cout << "Y: " << minY << " to " << maxY << std::endl;
+//     std::cout << "Z: " << minZ << " to " << maxZ << std::endl;
 
-    // Scale factor for adjusting astronomical coordinates to visible range
-    // Increase this value to make bodies appear closer together
-    float scaleFactor = 5.0e-12f * zoomFactor;
+//     // Prepare vector for combined position and mass data
+//     std::vector<float> combinedData;
+//     combinedData.reserve(numBodies * 4); // xyz + mass
 
-    // Set uniforms
-    GLint projLoc = glGetUniformLocation(shaderProgram_, "uProjection");
-    GLint viewLoc = glGetUniformLocation(shaderProgram_, "uView");
-    GLint pointSizeLoc = glGetUniformLocation(shaderProgram_, "uPointSize");
-    GLint scaleFactorLoc = glGetUniformLocation(shaderProgram_, "uScaleFactor");
+//     for (int i = 0; i < numBodies; ++i)
+//     {
+//         // Add coordinates
+//         combinedData.push_back(static_cast<float>(bodies[i].position.x));
+//         combinedData.push_back(static_cast<float>(bodies[i].position.y));
+//         combinedData.push_back(static_cast<float>(bodies[i].position.z));
 
-    if (projLoc == -1 || viewLoc == -1 || pointSizeLoc == -1 || scaleFactorLoc == -1)
-    {
-        std::cerr << "Warning: One or more shader uniforms not found" << std::endl;
-    }
+//         // Add mass
+//         combinedData.push_back(static_cast<float>(bodies[i].mass));
+//     }
 
-    glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
-    glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+//     numBodies_ = numBodies;
 
-    // Adjust point size based on zoom to maintain perceived size
-    glUniform1f(pointSizeLoc, 5.0f + (zoomFactor * 0.5f));
-    glUniform1f(scaleFactorLoc, scaleFactor);
+//     // Bind and update buffer data
+//     glBindVertexArray(VAO_);
+//     glBindBuffer(GL_ARRAY_BUFFER, VBO_);
 
-    // Enable point sprite features
-    glEnable(GL_POINT_SPRITE);
-    glEnable(GL_PROGRAM_POINT_SIZE);
+//     // Reallocate buffer if size changed
+//     glBufferData(GL_ARRAY_BUFFER,
+//                  combinedData.size() * sizeof(float),
+//                  combinedData.data(), GL_DYNAMIC_DRAW);
 
-    // Draw points
-    glBindVertexArray(VAO_);
-    glDrawArrays(GL_POINTS, 0, numBodies_);
+//     // Configure vertex attributes
+//     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE,
+//                           4 * sizeof(float), (void *)0);
+//     glEnableVertexAttribArray(0);
 
-    // Print camera info for debugging
-    static int frameCount = 0;
-    if (frameCount % 60 == 0)
-    { // Print every 60 frames to reduce spam
-        std::cout << "Camera position: z=" << (5.0e12f / zoomFactor)
-                  << ", zoom=" << zoomFactor
-                  << ", scale=" << scaleFactor << std::endl;
-    }
-    frameCount++;
+//     // Configure mass attribute
+//     glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE,
+//                           4 * sizeof(float), (void *)(3 * sizeof(float)));
+//     glEnableVertexAttribArray(1);
 
-    // Cleanup
-    glBindVertexArray(0);
-    glUseProgram(0);
-}
+//     glBindBuffer(GL_ARRAY_BUFFER, 0);
+//     glBindVertexArray(0);
+
+//     // Debug print for rendering
+//     std::cout << "Buffer updated with " << numBodies << " bodies" << std::endl;
+// }
+
+// void OpenGLRenderer::render(float aspectRatio)
+// {
+//     if (numBodies_ == 0 || shaderProgram_ == 0)
+//     {
+//         std::cerr << "Rendering conditions not met: "
+//                   << "numBodies=" << numBodies_
+//                   << ", shaderProgram=" << shaderProgram_ << std::endl;
+//         return;
+//     }
+
+//     // Extensive OpenGL state validation
+//     GLint currentProgram;
+//     glGetIntegerv(GL_CURRENT_PROGRAM, &currentProgram);
+//     if (currentProgram != shaderProgram_)
+//     {
+//         std::cerr << "Shader program mismatch: "
+//                   << "Expected " << shaderProgram_
+//                   << ", Current " << currentProgram << std::endl;
+//     }
+
+//     // Validate VAO and VBO
+//     GLint boundVAO, boundVBO;
+//     glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &boundVAO);
+//     glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &boundVBO);
+
+//     std::cout << "Bound VAO: " << boundVAO
+//               << ", Bound VBO: " << boundVBO
+//               << ", Our VAO: " << VAO_
+//               << ", Our VBO: " << VBO_ << std::endl;
+
+//     // Extensive vertex attribute validation
+//     GLint maxVertexAttribs;
+//     glGetIntegerv(GL_MAX_VERTEX_ATTRIBS, &maxVertexAttribs);
+
+//     for (GLint i = 0; i < maxVertexAttribs; ++i)
+//     {
+//         GLint enabled;
+//         glGetVertexAttribiv(i, GL_VERTEX_ATTRIB_ARRAY_ENABLED, &enabled);
+//         if (enabled)
+//         {
+//             GLint size, type, normalized, stride;
+//             void *pointer;
+//             glGetVertexAttribiv(i, GL_VERTEX_ATTRIB_ARRAY_SIZE, &size);
+//             glGetVertexAttribiv(i, GL_VERTEX_ATTRIB_ARRAY_TYPE, &type);
+//             glGetVertexAttribiv(i, GL_VERTEX_ATTRIB_ARRAY_NORMALIZED, &normalized);
+//             glGetVertexAttribiv(i, GL_VERTEX_ATTRIB_ARRAY_STRIDE, &stride);
+//             glGetVertexAttribPointerv(i, GL_VERTEX_ATTRIB_ARRAY_POINTER, &pointer);
+
+//             std::cout << "Attribute " << i
+//                       << ": size=" << size
+//                       << ", type=" << type
+//                       << ", normalized=" << normalized
+//                       << ", stride=" << stride
+//                       << ", pointer=" << pointer << std::endl;
+//         }
+//     }
+
+//     // Clear buffers with a nice dark background
+//     glClearColor(0.0f, 0.0f, 0.1f, 1.0f);
+//     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+//     // Use shader program
+//     glUseProgram(shaderProgram_);
+
+//     // Create projection matrix with modified parameters for astronomical scale
+//     glm::mat4 projection = glm::perspective(
+//         glm::radians(45.0f), // Field of view
+//         aspectRatio,         // Aspect ratio
+//         0.1f,                // Near plane (reduced to see closer objects)
+//         1.0e20f              // Far plane (increased for astronomical distances)
+//     );
+
+//     // Get camera parameters from simulation state
+//     float zoomFactor = simulationState_.zoomFactor.load();
+//     float offsetX = simulationState_.offsetX;
+//     float offsetY = simulationState_.offsetY;
+
+//     // Create view matrix with adjusted camera position
+//     // Bring camera closer to see more detail
+//     glm::mat4 view = glm::lookAt(
+//         glm::vec3(offsetX, offsetY, 5.0e12f / zoomFactor), // Camera position
+//         glm::vec3(offsetX, offsetY, 0.0f),                 // Look at offset origin
+//         glm::vec3(0.0f, 1.0f, 0.0f)                        // Up vector
+//     );
+
+//     // Scale factor for adjusting astronomical coordinates to visible range
+//     // Increase this value to make bodies appear closer together
+//     float scaleFactor = 5.0e-12f * zoomFactor;
+
+//     // Set uniforms
+//     GLint projLoc = glGetUniformLocation(shaderProgram_, "uProjection");
+//     GLint viewLoc = glGetUniformLocation(shaderProgram_, "uView");
+//     GLint pointSizeLoc = glGetUniformLocation(shaderProgram_, "uPointSize");
+//     GLint scaleFactorLoc = glGetUniformLocation(shaderProgram_, "uScaleFactor");
+
+//     if (projLoc == -1 || viewLoc == -1 || pointSizeLoc == -1 || scaleFactorLoc == -1)
+//     {
+//         std::cerr << "Warning: One or more shader uniforms not found" << std::endl;
+//     }
+
+//     glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
+//     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+
+//     // Adjust point size based on zoom to maintain perceived size
+//     glUniform1f(pointSizeLoc, 5.0f + (zoomFactor * 0.5f));
+//     glUniform1f(scaleFactorLoc, scaleFactor);
+
+//     // Enable point sprite features
+//     glEnable(GL_POINT_SPRITE);
+//     glEnable(GL_PROGRAM_POINT_SIZE);
+
+//     // Draw points
+//     glBindVertexArray(VAO_);
+//     glDrawArrays(GL_POINTS, 0, numBodies_);
+
+//     // Print camera info for debugging
+//     static int frameCount = 0;
+//     if (frameCount % 60 == 0)
+//     { // Print every 60 frames to reduce spam
+//         std::cout << "Camera position: z=" << (5.0e12f / zoomFactor)
+//                   << ", zoom=" << zoomFactor
+//                   << ", scale=" << scaleFactor << std::endl;
+//     }
+//     frameCount++;
+
+//     // Cleanup
+//     glBindVertexArray(0);
+//     glUseProgram(0);
+// }
