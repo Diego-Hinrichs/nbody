@@ -57,7 +57,7 @@ const char *vertexShaderSource = R"(
     }
 )";
 
-// Fragment shader
+// Shader de fragmentos actualizado con colores de mayor contraste
 const char *fragmentShaderSource = R"(
     #version 330 core
     in float vMass;
@@ -72,43 +72,43 @@ const char *fragmentShaderSource = R"(
         
         // Sun-like bodies (very massive)
         if (vMass > 1.0e28) {
-            // Yellow-white for sun
-            bodyColor = vec3(1.0, 0.9, 0.7);
-            glowIntensity = 0.8;
+            // Amarillo-naranja brillante para el sol (más contrastante)
+            bodyColor = vec3(1.0, 0.85, 0.3);
+            glowIntensity = 0.9;
             coreBrightness = 1.0;
         }
         // Planet-sized bodies
         else if (vMass > 1.0e24) {
-            // Use a color gradient based on exact mass
+            // Use a color gradient based on exact mass with higher saturation
             float t = (log(vMass) - log(1.0e24)) / (log(1.0e28) - log(1.0e24));
             
-            // Create a spectrum of planet colors
+            // Create a spectrum of planet colors with better contrast
             if (t < 0.2) {
-                bodyColor = mix(vec3(0.2, 0.2, 0.8), vec3(0.2, 0.5, 0.8), t*5.0); // Blue/ocean planets
+                bodyColor = mix(vec3(0.2, 0.4, 1.0), vec3(0.2, 0.7, 1.0), t*5.0); // Azul intenso
             } else if (t < 0.4) {
-                bodyColor = mix(vec3(0.2, 0.5, 0.8), vec3(0.2, 0.7, 0.4), (t-0.2)*5.0); // Blue-green planets
+                bodyColor = mix(vec3(0.2, 0.7, 1.0), vec3(0.2, 1.0, 0.5), (t-0.2)*5.0); // Azul a verde
             } else if (t < 0.6) {
-                bodyColor = mix(vec3(0.2, 0.7, 0.4), vec3(0.7, 0.7, 0.2), (t-0.4)*5.0); // Green to yellow planets
+                bodyColor = mix(vec3(0.2, 1.0, 0.5), vec3(1.0, 1.0, 0.3), (t-0.4)*5.0); // Verde a amarillo
             } else if (t < 0.8) {
-                bodyColor = mix(vec3(0.7, 0.7, 0.2), vec3(0.8, 0.4, 0.2), (t-0.6)*5.0); // Yellow to red planets
+                bodyColor = mix(vec3(1.0, 1.0, 0.3), vec3(1.0, 0.5, 0.2), (t-0.6)*5.0); // Amarillo a naranja
             } else {
-                bodyColor = mix(vec3(0.8, 0.4, 0.2), vec3(0.6, 0.3, 0.1), (t-0.8)*5.0); // Reddish planets
+                bodyColor = mix(vec3(1.0, 0.5, 0.2), vec3(1.0, 0.3, 0.1), (t-0.8)*5.0); // Naranja a rojo
             }
             
-            glowIntensity = 0.3;
-            coreBrightness = 0.8;
+            glowIntensity = 0.4;
+            coreBrightness = 0.9;
         }
         // Small bodies (asteroids, etc.)
         else {
-            // Gray to white for small bodies
+            // Colores más claros para cuerpos pequeños
             float smallBodyFactor = clamp(log(vMass / 1.0e20) / 10.0, 0.0, 1.0);
             bodyColor = mix(
-                vec3(0.5, 0.5, 0.5),   // Gray for very small bodies
-                vec3(0.7, 0.7, 0.8),   // Light blue-gray for larger small bodies
+                vec3(0.8, 0.8, 0.8),   // Blanco para muy pequeños (contraste alto)
+                vec3(0.6, 0.8, 1.0),   // Azul claro para pequeños más grandes
                 smallBodyFactor
             );
-            glowIntensity = 0.1;
-            coreBrightness = 0.6;
+            glowIntensity = 0.2;
+            coreBrightness = 0.7;
         }
         
         // Create circular point with glow effect
@@ -347,7 +347,8 @@ void OpenGLRenderer::render(float aspectRatio)
     glUniform1f(scaleFactorLoc, scaleFactor);
 
     // Clear buffers with a nice dark background
-    glClearColor(0.0f, 0.0f, 0.1f, 1.0f);
+    // glClearColor(0.0f, 0.0f, 0.1f, 1.0f);
+    glClearColor(41.0f / 255.0f, 41.0f / 255.0f, 40.0f / 255.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     // Bind VAO and draw points

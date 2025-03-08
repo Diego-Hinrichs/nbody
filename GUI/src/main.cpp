@@ -224,18 +224,13 @@ void simulationThread(SimulationState *state)
 
             if (std::chrono::duration<double>(now - lastTime).count() >= 1.0)
             {
-                // Update FPS every second
-                state->fps = 1000.0 / (frameTimeAccum / frameCount);
+                // Update FPS every second - corregir cálculo
+                state->fps = frameCount / std::chrono::duration<double>(now - lastTime).count();
                 frameTimeAccum = 0.0;
                 frameCount = 0;
                 lastTime = now;
             }
 
-            // Limit speed to avoid overloading the GPU
-            if (frameTime < 16.67) // Approximately 60 FPS
-            {
-                std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(16.67 - frameTime)));
-            }
         }
 
         // Cleanup

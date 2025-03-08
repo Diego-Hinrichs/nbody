@@ -38,9 +38,13 @@ void SimulationBase::initRandomBodies()
     // Seed random number generator
     srand(time(NULL));
     double maxDistance = MAX_DIST;
-    double minDistance = MIN_DIST;
+    double minDistance = MIN_DIST * 1.2;
     Vector centerPos(CENTERX, CENTERY, CENTERZ);
-
+    
+    // Número de planetas grandes, medianos y pequeños para una distribución más equilibrada
+    int largeCount = nBodies / 20;   // 5% planetas grandes
+    int mediumCount = nBodies / 8;   // 12.5% planetas medianos
+    
     // Generate random bodies in a spherical distribution
     for (int i = 1; i < nBodies; ++i)
     {
@@ -49,43 +53,73 @@ void SimulationBase::initRandomBodies()
         double v = rand() / (double)RAND_MAX; // For phi
         double theta = 2.0 * M_PI * u;
         double phi = acos(2.0 * v - 1.0);
-
-        // Random radius between min and max distance
-        double radius = (maxDistance - minDistance) * (rand() / (double)RAND_MAX) + minDistance;
-
+        
+        // Random radius between min and max distance con mejor distribución
+        double distFactor = pow(rand() / (double)RAND_MAX, 0.7); // Mejor distribución espacial
+        double radius = (maxDistance - minDistance) * distFactor + minDistance;
+        
+        // Distribuir los planetas en "órbitas" para mayor realismo
+        if (i <= largeCount) {
+            // Planetas grandes en órbitas más separadas
+            radius = minDistance + (i * (maxDistance - minDistance) / (largeCount * 1.5));
+        } else if (i <= (largeCount + mediumCount)) {
+            // Planetas medianos en órbitas intermedias
+            int idx = i - largeCount;
+            radius = minDistance + (idx * (maxDistance - minDistance) / (mediumCount * 1.2));
+            // Añadir variación aleatoria para evitar simetría
+            radius *= (0.9 + (rand() / (double)RAND_MAX) * 0.2);
+        }
+        
         // Convert to Cartesian coordinates
         double x = centerPos.x + radius * sin(phi) * cos(theta);
         double y = centerPos.y + radius * sin(phi) * sin(theta);
         double z = centerPos.z + radius * cos(phi);
-
+        
         // Setup body properties
         h_bodies[i].isDynamic = true;
-
-        // Assign mass based on a narrower power law distribution
-        double massFactor = pow(rand() / (double)RAND_MAX, 2.0);
-        h_bodies[i].mass = EARTH_MASS;
-
-        // Adjust radius based on mass
-        h_bodies[i].radius = EARTH_DIA/2;
-
+        
+        // Adjust mass based on body type
+        if (i <= largeCount) {
+            // Planetas grandes (tipo Júpiter/Saturno)
+            double massFactor = 50.0 + (rand() / (double)RAND_MAX) * 250.0;
+            h_bodies[i].mass = EARTH_MASS * massFactor;
+            h_bodies[i].radius = EARTH_DIA * 5.0;
+        } else if (i <= (largeCount + mediumCount)) {
+            // Planetas medianos (tipo Tierra/Neptuno)
+            double massFactor = 5.0 + (rand() / (double)RAND_MAX) * 15.0;
+            h_bodies[i].mass = EARTH_MASS * massFactor;
+            h_bodies[i].radius = EARTH_DIA * 2.0;
+        } else {
+            // Pequeños cuerpos (menos dominantes visualmente)
+            double massFactor = 0.1 + (rand() / (double)RAND_MAX) * 1.0;
+            h_bodies[i].mass = EARTH_MASS * massFactor;
+            h_bodies[i].radius = EARTH_DIA * 0.5;
+        }
+        
         h_bodies[i].position = Vector(x, y, z);
-
-        // Setup initial velocities for orbital motion
-        double orbitalSpeed = sqrt(GRAVITY * EARTH_MASS * (1.0 + massFactor) / radius);
-
-        // Setup initial velocities
-        double velocityFactor = rand() / (double)RAND_MAX;
-
-        // Calculate a vector perpendicular to the radius with random orientation
-        double vx = (-y + (rand() / (double)RAND_MAX - 0.5) * radius) * orbitalSpeed / radius;
-        double vy = (x + (rand() / (double)RAND_MAX - 0.5) * radius) * orbitalSpeed / radius;
-        double vz = (rand() / (double)RAND_MAX - 0.5) * orbitalSpeed;
-
-        // Apply velocity factor to allow for different orbit shapes
-        h_bodies[i].velocity = Vector(vx, vy, vz) * velocityFactor;
-
+        
+        // Velocidades orbitales estables
+        double orbitalSpeed = sqrt(GRAVITY * SUN_MASS / radius) * (0.8 + (rand() / (double)RAND_MAX) * 0.4);
+        
+        // Crear vector perpendicular al radial para obtener órbita circular
+        Vector radial = h_bodies[i].position - centerPos;
+        Vector perpendicular;
+        
+        // Seleccionar un plano orbital adecuado
+        if (fabs(radial.z) < fabs(radial.x) && fabs(radial.z) < fabs(radial.y)) {
+            perpendicular = Vector(-radial.y, radial.x, 0);
+        } else {
+            perpendicular = Vector(0, -radial.z, radial.y);
+        }
+        
+        // Normalizar y aplicar velocidad orbital
+        perpendicular = perpendicular.normalize() * orbitalSpeed;
+        
+        // Aplicar velocidad orbital con ligera inclinación para mayor realismo
+        h_bodies[i].velocity = perpendicular;
         h_bodies[i].acceleration = Vector(0.0, 0.0, 0.0);
     }
+    
     // Place a sun in the center
     h_bodies[0].isDynamic = false;
     h_bodies[0].mass = SUN_MASS;
@@ -98,16 +132,6 @@ void SimulationBase::initRandomBodies()
 void SimulationBase::setup()
 {
     initRandomBodies();
-
-    // Imprimir primeros 5 cuerpos para verificación
-    // for (int i = 0; i < 5 && i < nBodies; ++i)
-    // {
-    //     std::cout << "Cuerpo " << i
-    //               << ": x=" << h_bodies[i].position.x
-    //               << ", y=" << h_bodies[i].position.y
-    //               << ", z=" << h_bodies[i].position.z
-    //               << ", masa=" << h_bodies[i].mass << std::endl;
-    // }
 
     // Resto del método sin cambios
     copyBodiesToDevice();
