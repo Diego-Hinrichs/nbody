@@ -5,7 +5,24 @@
 #include <mutex>
 #include <vector>
 #include <string>
-#include "../include/common/types.cuh"
+#include "../common/types.cuh"
+
+// Enum for SFC ordering mode
+enum class SFCOrderingMode
+{
+    PARTICLES, // Order particles using SFC
+    OCTANTS    // Order octants using SFC
+};
+
+// Enum for initial body distribution
+enum class BodyDistribution
+{
+    SOLAR_SYSTEM,   // Solar system like distribution
+    GALAXY,         // Galaxy-like spiral
+    BINARY_SYSTEM,  // Binary star system
+    UNIFORM_SPHERE, // Uniform distribution in sphere
+    RANDOM_CLUSTERS // Random clusters of bodies
+};
 
 struct SimulationState
 {
@@ -14,6 +31,15 @@ struct SimulationState
     std::atomic<bool> restart;
     std::atomic<bool> useSFC;
     std::atomic<bool> isPaused;
+
+    // SFC specific parameters
+    std::atomic<SFCOrderingMode> sfcOrderingMode;
+    std::atomic<int> reorderFrequency; // How often to reorder (iterations)
+
+    // Distribution parameters
+    std::atomic<BodyDistribution> bodyDistribution;
+    std::atomic<unsigned int> randomSeed; // Seed for random number generation
+    bool seedWasChanged;                  // Flag to indicate seed was manually set
 
     // Simulation parameters
     std::atomic<int> numBodies;
@@ -35,9 +61,8 @@ struct SimulationState
     // UI state
     bool showCommandMenu;
     int selectedCommandIndex;
-    std::vector<std::string> commandOptions;
-    std::vector<std::string> particleOptions;
     int selectedParticleOption;
+    char seedInputBuffer[16]; // Buffer for seed input text
 
     // Constructor with default initialization
     SimulationState();

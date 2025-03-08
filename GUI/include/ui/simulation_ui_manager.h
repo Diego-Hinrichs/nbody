@@ -31,6 +31,7 @@ private:
     void renderSimulationControls();
     void renderPerformanceInfo();
     void renderBodyCountSelector();
+    void renderDistributionOptions(); // New method for distribution options
     void renderSimulationOptionsPanel();
 };
 

@@ -1,12 +1,14 @@
 #include "../../include/simulation/barnes_hut.cuh"
 
-// Declaración de la función externa modificada
+// Updated external function declaration to match the new signature
 extern "C" void BuildOptimizedOctTree(
     Node *d_nodes, Body *d_bodies, Body *d_tempBodies,
     int *orderedIndices, bool useSFC,
+    int *octantIndices, bool useOctantOrder,
     int nNodes, int nBodies, int leafLimit);
 
-BarnesHut::BarnesHut(int numBodies) : SimulationBase(numBodies)
+BarnesHut::BarnesHut(int numBodies, BodyDistribution dist, unsigned int seed)
+    : SimulationBase(numBodies, dist, seed)
 {
     nNodes = MAX_NODES;
     leafLimit = MAX_NODES - N_LEAF;
@@ -15,7 +17,6 @@ BarnesHut::BarnesHut(int numBodies) : SimulationBase(numBodies)
     h_nodes = new Node[nNodes];
 
     // Allocate device memory
-    CHECK_CUDA_ERROR(cudaMalloc(&d_tempBodies, nBodies * sizeof(Body)));
     CHECK_CUDA_ERROR(cudaMalloc(&d_nodes, nNodes * sizeof(Node)));
     CHECK_CUDA_ERROR(cudaMalloc(&d_mutex, nNodes * sizeof(int)));
     CHECK_CUDA_ERROR(cudaMalloc(&d_bodiesBuffer, nBodies * sizeof(Body)));
@@ -74,7 +75,7 @@ void BarnesHut::computeBoundingBox()
     // Measure execution time
     CudaTimer timer(metrics.bboxTimeMs);
 
-    // Launch bounding box computation kernel con soporte para SFC
+    // Launch bounding box computation kernel with SFC support
     int blockSize = BLOCK_SIZE;
     int gridSize = (nBodies + blockSize - 1) / blockSize;
 
@@ -88,9 +89,11 @@ void BarnesHut::constructOctree()
     // Measure execution time
     CudaTimer timer(metrics.octreeTimeMs);
 
-    // Launch octree construction kernel con soporte para SFC
+    // Launch octree construction kernel with SFC support
+    // Updated to use the new function signature with octant indices
     BuildOptimizedOctTree(d_nodes, d_bodies, d_tempBodies,
                           getOrderedIndices(), isUsingSFC(),
+                          nullptr, false, // Base class doesn't use octant ordering
                           nNodes, nBodies, leafLimit);
     CHECK_LAST_CUDA_ERROR();
 }
@@ -100,7 +103,7 @@ void BarnesHut::computeForces()
     // Measure execution time
     CudaTimer timer(metrics.forceTimeMs);
 
-    // Launch force computation kernel con soporte para SFC
+    // Launch force computation kernel with SFC support
     int blockSize = 256;
     int gridSize = (nBodies + blockSize - 1) / blockSize;
 

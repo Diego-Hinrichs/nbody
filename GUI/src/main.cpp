@@ -92,19 +92,38 @@ void simulationThread(SimulationState *state)
         SimulationBase *simulation = nullptr;
         int currentNumBodies = state->numBodies.load();
         bool currentUseSFC = state->useSFC.load();
+        SFCOrderingMode currentOrderingMode = state->sfcOrderingMode.load();
+        int currentReorderFreq = state->reorderFrequency.load();
+        BodyDistribution currentDistribution = state->bodyDistribution.load();
+        unsigned int currentSeed = state->randomSeed.load();
 
         // Configuración para reducir transferencias CPU-GPU
-        const int VISUALIZATION_FREQUENCY = 24; // Actualizar visualización cada 2 cuadros
+        const int VISUALIZATION_FREQUENCY = 24; // Actualizar visualización cada 24 cuadros
         int frameCounter = 0;
 
-        // Create initial simulation
+        // Create initial simulation with distribution parameters
         if (currentUseSFC)
         {
-            simulation = new SFCBarnesHut(currentNumBodies, true);
+            simulation = new SFCBarnesHut(
+                currentNumBodies,
+                true,                // Use SFC
+                currentOrderingMode, // Ordering mode
+                currentReorderFreq,  // Reorder frequency
+                currentDistribution, // Distribution type
+                currentSeed          // Random seed
+            );
+            // Set distribution parameters
+            simulation->setDistributionAndSeed(currentDistribution, currentSeed);
         }
         else
         {
-            simulation = new BarnesHut(currentNumBodies);
+            simulation = new BarnesHut(
+                currentNumBodies,
+                currentDistribution, // Distribution type
+                currentSeed          // Random seed
+            );
+            // Set distribution parameters
+            simulation->setDistributionAndSeed(currentDistribution, currentSeed);
         }
 
         if (!simulation)
@@ -137,11 +156,22 @@ void simulationThread(SimulationState *state)
             // Check if simulation restart is needed
             if (state->restart.load() ||
                 currentNumBodies != state->numBodies.load() ||
-                currentUseSFC != state->useSFC.load())
+                currentUseSFC != state->useSFC.load() ||
+                currentOrderingMode != state->sfcOrderingMode.load() ||
+                currentReorderFreq != state->reorderFrequency.load() ||
+                currentDistribution != state->bodyDistribution.load() ||
+                (state->seedWasChanged && currentSeed != state->randomSeed.load()))
             {
                 // Update parameters
                 currentNumBodies = state->numBodies.load();
                 currentUseSFC = state->useSFC.load();
+                currentOrderingMode = state->sfcOrderingMode.load();
+                currentReorderFreq = state->reorderFrequency.load();
+                currentDistribution = state->bodyDistribution.load();
+                currentSeed = state->randomSeed.load();
+
+                // Reset the seed change flag
+                state->seedWasChanged = false;
 
                 // Recreate the simulation
                 delete simulation;
@@ -151,11 +181,22 @@ void simulationThread(SimulationState *state)
                 {
                     if (currentUseSFC)
                     {
-                        simulation = new SFCBarnesHut(currentNumBodies, true);
+                        simulation = new SFCBarnesHut(
+                            currentNumBodies,
+                            true,                // Use SFC
+                            currentOrderingMode, // Ordering mode
+                            currentReorderFreq,  // Reorder frequency
+                            currentDistribution, // Distribution type
+                            currentSeed          // Random seed
+                        );
                     }
                     else
                     {
-                        simulation = new BarnesHut(currentNumBodies);
+                        simulation = new BarnesHut(
+                            currentNumBodies,
+                            currentDistribution, // Distribution type
+                            currentSeed          // Random seed
+                        );
                     }
 
                     if (!simulation)
@@ -164,6 +205,8 @@ void simulationThread(SimulationState *state)
                         break;
                     }
 
+                    // Set distribution parameters
+                    simulation->setDistributionAndSeed(currentDistribution, currentSeed);
                     simulation->setup();
                 }
                 catch (const std::exception &e)
@@ -181,15 +224,15 @@ void simulationThread(SimulationState *state)
 
             // Update simulation
             simulation->update();
-            
+
             // Incrementar contador de cuadros
             frameCounter++;
 
             // Leer cuerpos desde el dispositivo solo cuando sea necesario
-            if (frameCounter >= VISUALIZATION_FREQUENCY) 
+            if (frameCounter >= VISUALIZATION_FREQUENCY)
             {
                 frameCounter = 0;
-                
+
                 // Copiar datos desde GPU a CPU
                 simulation->copyBodiesFromDevice();
 
@@ -224,13 +267,12 @@ void simulationThread(SimulationState *state)
 
             if (std::chrono::duration<double>(now - lastTime).count() >= 1.0)
             {
-                // Update FPS every second - corregir cálculo
+                // Update FPS every second
                 state->fps = frameCount / std::chrono::duration<double>(now - lastTime).count();
                 frameTimeAccum = 0.0;
                 frameCount = 0;
                 lastTime = now;
             }
-
         }
 
         // Cleanup
@@ -241,6 +283,7 @@ void simulationThread(SimulationState *state)
         logMessage("Fatal error in simulation thread: " + std::string(e.what()), true);
     }
 }
+
 int main(int argc, char **argv)
 {
     try

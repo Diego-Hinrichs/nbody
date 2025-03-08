@@ -3,12 +3,13 @@
 
 #include "../../include/simulation/barnes_hut.cuh"
 #include "../sfc/body_sorter.cuh"
+#include "../ui/simulation_state.h"
 
 /**
  * @brief Space-Filling Curve enhanced Barnes-Hut simulation
  *
  * This class extends the standard Barnes-Hut implementation by sorting
- * bodies according to their position on a space-filling curve (Morton code),
+ * bodies or octants according to their position on a space-filling curve (Morton code),
  * which improves memory coherence during tree traversal.
  */
 class SFCBarnesHut : public BarnesHut
@@ -19,6 +20,12 @@ private:
     Vector maxBound;         // Maximum domain bounds
     sfc::BodySorter *sorter; // Body sorter for SFC ordering
     int *d_orderedIndices;   // Device array for SFC-ordered indices
+    int *d_octantIndices;    // Device array for octant ordering
+
+    // Reordering parameters
+    SFCOrderingMode orderingMode; // Current ordering mode
+    int reorderFrequency;         // How often to reorder (in iterations)
+    int iterationCounter;         // Counts iterations between reordering
 
     /**
      * @brief Update domain bounds based on root node
@@ -30,13 +37,35 @@ private:
      */
     void orderBodiesBySFC();
 
+    /**
+     * @brief Order octants according to their Morton codes
+     * @param nodes Device pointer to octree nodes
+     * @param nNodes Number of nodes
+     */
+    void orderOctantsBySFC(Node *nodes, int nNodes);
+
+protected:
+    /**
+     * @brief Override to construct the octree with SFC ordering
+     */
+    virtual void constructOctree() override;
+
 public:
     /**
      * @brief Constructor
      * @param numBodies Number of bodies in the simulation
      * @param useSpaceFillingCurve Flag to enable/disable SFC ordering
+     * @param initialOrderingMode Initial ordering mode
+     * @param initialReorderFreq Initial reordering frequency
+     * @param dist Distribution type for initial body positions
+     * @param seed Random seed for reproducibility
      */
-    SFCBarnesHut(int numBodies, bool useSpaceFillingCurve = true);
+    SFCBarnesHut(int numBodies,
+                 bool useSpaceFillingCurve = true,
+                 SFCOrderingMode initialOrderingMode = SFCOrderingMode::PARTICLES,
+                 int initialReorderFreq = 10,
+                 BodyDistribution dist = BodyDistribution::SOLAR_SYSTEM,
+                 unsigned int seed = static_cast<unsigned int>(time(nullptr)));
 
     /**
      * @brief Destructor
@@ -61,6 +90,24 @@ public:
     }
 
     /**
+     * @brief Set the ordering mode
+     * @param mode New ordering mode
+     */
+    void setOrderingMode(SFCOrderingMode mode)
+    {
+        orderingMode = mode;
+    }
+
+    /**
+     * @brief Set the reordering frequency
+     * @param frequency New reordering frequency in iterations
+     */
+    void setReorderFrequency(int frequency)
+    {
+        reorderFrequency = frequency;
+    }
+
+    /**
      * @brief Check if SFC ordering is enabled
      * @return true if SFC ordering is enabled, false otherwise
      */
@@ -73,18 +120,18 @@ public:
      * @brief Get the SFC-ordered indices array
      * @return Pointer to the device array of SFC-ordered indices
      */
-    int *getOrderedIndices() const
+    int *getOrderedIndices() const override
     {
-        return d_orderedIndices;
+        return (orderingMode == SFCOrderingMode::PARTICLES) ? d_orderedIndices : d_octantIndices;
     }
 
     /**
      * @brief Check if SFC ordering is being used
      * @return True if SFC ordering is enabled and indices are valid
      */
-    bool isUsingSFC() const
+    bool isUsingSFC() const override
     {
-        return useSFC && d_orderedIndices != nullptr;
+        return useSFC && getOrderedIndices() != nullptr;
     }
 };
 

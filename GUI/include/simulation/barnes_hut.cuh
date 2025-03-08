@@ -4,22 +4,6 @@
 
 #include "simulation_base.cuh"
 
-// Forward declarations de kernels con nuevos parámetros
-__global__ void ResetKernel(Node *nodes, int *mutex, int nNodes, int nBodies);
-
-__global__ void ComputeBoundingBoxKernel(
-    Node *nodes, Body *bodies, int *orderedIndices, bool useSFC,
-    int *mutex, int nBodies);
-
-extern "C" void BuildOptimizedOctTree(
-    Node *d_nodes, Body *d_bodies, Body *d_tempBodies,
-    int *orderedIndices, bool useSFC,
-    int nNodes, int nBodies, int leafLimit);
-
-__global__ void ComputeForceKernel(
-    Node *nodes, Body *bodies, int *orderedIndices, bool useSFC,
-    int nNodes, int nBodies, int leafLimit);
-
 /**
  * @brief Barnes-Hut N-body simulation implementation
  *
@@ -55,8 +39,9 @@ protected:
 
     /**
      * @brief Construct the octree from current body positions
+     * Made virtual to allow derived classes to override it
      */
-    void constructOctree();
+    virtual void constructOctree();
 
     /**
      * @brief Compute gravitational forces using the octree
@@ -67,8 +52,12 @@ public:
     /**
      * @brief Constructor
      * @param numBodies Number of bodies in the simulation
+     * @param dist Distribution type for initial body positions
+     * @param seed Random seed for reproducibility
      */
-    BarnesHut(int numBodies);
+    BarnesHut(int numBodies,
+              BodyDistribution dist = BodyDistribution::SOLAR_SYSTEM,
+              unsigned int seed = static_cast<unsigned int>(time(nullptr)));
 
     /**
      * @brief Destructor

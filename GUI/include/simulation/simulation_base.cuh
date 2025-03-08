@@ -4,6 +4,31 @@
 #include "../common/types.cuh"
 #include "../common/constants.cuh"
 #include "../common/error_handling.cuh"
+#include "../ui/simulation_state.h"
+
+extern "C" void BuildOptimizedOctTree(
+    Node *d_nodes, Body *d_bodies, Body *d_tempBodies,
+    int *orderedIndices, bool useSFC,
+    int *octantIndices, bool useOctantOrder,
+    int nNodes, int nBodies, int leafLimit);
+
+__global__ void ResetKernel(
+    Node *nodes, int *mutex, int nNodes, int nBodies);
+
+__global__ void ComputeBoundingBoxKernel(
+    Node *nodes, Body *bodies, int *orderedIndices, bool useSFC,
+    int *mutex, int nBodies);
+
+__global__ void OptimizedConstructOctTreeKernelWithOctantOrder(
+    Node *nodes, Body *bodies, Body *buffer,
+    int *orderedIndices, bool useSFC,
+    int *octantIndices, bool useOctantOrder,
+    int *jobQueue, int *jobCount, int initJobCount,
+    int nNodes, int nBodies, int leafLimit);
+
+__global__ void ComputeForceKernel(
+    Node *nodes, Body *bodies, int *orderedIndices, bool useSFC,
+    int nNodes, int nBodies, int leafLimit);
 
 /**
  * @brief Base class for N-body simulations
@@ -19,16 +44,52 @@ protected:
     Body *h_bodies; // Host bodies array
     Body *d_bodies; // Device bodies array
     Body *d_tempBodies;
-    
+
     SimulationMetrics metrics; // Performance metrics
+
+    // Configuration parameters
+    BodyDistribution distribution;
+    unsigned int randomSeed;
 
     // Flag to indicate whether the simulation is initialized
     bool isInitialized;
 
     /**
-     * @brief Initialize bodies with random positions and velocities
+     * @brief Initialize bodies with specified distribution and seed
+     * @param dist Distribution type to use
+     * @param seed Random seed for reproducibility
      */
-    virtual void initRandomBodies();
+    virtual void initBodies(BodyDistribution dist, unsigned int seed);
+
+    /**
+     * @brief Initialize bodies with solar system like distribution
+     * @param seed Random seed for reproducibility
+     */
+    void initSolarSystem(unsigned int seed);
+
+    /**
+     * @brief Initialize bodies with galaxy-like spiral distribution
+     * @param seed Random seed for reproducibility
+     */
+    void initGalaxy(unsigned int seed);
+
+    /**
+     * @brief Initialize bodies with binary star system distribution
+     * @param seed Random seed for reproducibility
+     */
+    void initBinarySystem(unsigned int seed);
+
+    /**
+     * @brief Initialize bodies with uniform sphere distribution
+     * @param seed Random seed for reproducibility
+     */
+    void initUniformSphere(unsigned int seed);
+
+    /**
+     * @brief Initialize bodies with random clusters
+     * @param seed Random seed for reproducibility
+     */
+    void initRandomClusters(unsigned int seed);
 
     /**
      * @brief Ensure the simulation is initialized before operations
@@ -46,8 +107,12 @@ public:
     /**
      * @brief Constructor
      * @param numBodies Number of bodies in the simulation
+     * @param dist Initial distribution of bodies
+     * @param seed Random seed for reproducibility
      */
-    SimulationBase(int numBodies);
+    SimulationBase(int numBodies,
+                   BodyDistribution dist = BodyDistribution::SOLAR_SYSTEM,
+                   unsigned int seed = static_cast<unsigned int>(time(nullptr)));
 
     /**
      * @brief Virtual destructor
@@ -57,9 +122,20 @@ public:
     /**
      * @brief Setup the simulation
      *
-     * Initializes random bodies and transfers them to the device.
+     * Initializes bodies with specified distribution and transfers them to the device.
      */
     virtual void setup();
+
+    /**
+     * @brief Set the distribution and seed for the simulation
+     * @param dist Distribution type
+     * @param seed Random seed
+     */
+    void setDistributionAndSeed(BodyDistribution dist, unsigned int seed)
+    {
+        distribution = dist;
+        randomSeed = seed;
+    }
 
     /**
      * @brief Update the simulation

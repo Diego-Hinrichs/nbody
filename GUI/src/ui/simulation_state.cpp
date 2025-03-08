@@ -4,7 +4,12 @@ SimulationState::SimulationState() : running(true),
                                      restart(false),
                                      useSFC(false),
                                      isPaused(false),
-                                     numBodies(1000),
+                                     sfcOrderingMode(SFCOrderingMode::PARTICLES),
+                                     reorderFrequency(10), // Reorder every 10 iterations by default
+                                     bodyDistribution(BodyDistribution::SOLAR_SYSTEM),
+                                     randomSeed(static_cast<unsigned int>(time(nullptr))),
+                                     seedWasChanged(false),
+                                     numBodies(1024),
                                      zoomFactor(1.0),
                                      offsetX(0.0),
                                      offsetY(0.0),
@@ -16,16 +21,8 @@ SimulationState::SimulationState() : running(true),
                                      selectedCommandIndex(0),
                                      selectedParticleOption(0)
 {
-    // Default command options
-    commandOptions = {
-        "Reiniciar Simulacion",
-        "Numero de Particulas",
-        "Activar/Desactivar SFC",
-        "Pausar/Reanudar",
-        "Cerrar Menu"};
-
-    // Default particle options
-    particleOptions = {"1000", "5000", "10000", "15000", "20000"};
+    // Initialize seed input buffer with current seed
+    snprintf(seedInputBuffer, sizeof(seedInputBuffer), "%u", randomSeed.load());
 }
 
 SimulationState::~SimulationState()

@@ -50,7 +50,7 @@ const char *vertexShaderSource = R"(
         float distanceScale = 10.0 / (1.0 + vDistance * 0.00001);
         
         // Combine all scaling factors
-        gl_PointSize = uPointSize * massScale * clamp(distanceScale, 0.1, 5.0);
+        gl_PointSize = uPointSize * massScale * clamp(distanceScale, 0.1, 15.0);
         
         // Pass mass to fragment shader
         vMass = aMass;
