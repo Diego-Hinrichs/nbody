@@ -42,7 +42,7 @@ void SimulationBase::initRandomBodies()
     Vector centerPos(CENTERX, CENTERY, CENTERZ);
 
     // Generate random bodies in a spherical distribution
-    for (int i = 0; i < nBodies; ++i)
+    for (int i = 1; i < nBodies; ++i)
     {
         // Generate random spherical coordinates
         double u = rand() / (double)RAND_MAX; // For theta
@@ -66,7 +66,7 @@ void SimulationBase::initRandomBodies()
         h_bodies[i].mass = EARTH_MASS;
 
         // Adjust radius based on mass
-        h_bodies[i].radius = EARTH_DIA;
+        h_bodies[i].radius = EARTH_DIA/2;
 
         h_bodies[i].position = Vector(x, y, z);
 
@@ -86,6 +86,13 @@ void SimulationBase::initRandomBodies()
 
         h_bodies[i].acceleration = Vector(0.0, 0.0, 0.0);
     }
+    // Place a sun in the center
+    h_bodies[0].isDynamic = false;
+    h_bodies[0].mass = SUN_MASS;
+    h_bodies[0].radius = SUN_DIA / 2;
+    h_bodies[0].position = centerPos;
+    h_bodies[0].velocity = Vector(0.0, 0.0, 0.0);
+    h_bodies[0].acceleration = Vector(0.0, 0.0, 0.0);
 }
 
 void SimulationBase::setup()

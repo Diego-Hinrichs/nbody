@@ -18,7 +18,8 @@ protected:
     int nBodies;    // Number of bodies in the simulation
     Body *h_bodies; // Host bodies array
     Body *d_bodies; // Device bodies array
-
+    Body *d_tempBodies;
+    
     SimulationMetrics metrics; // Performance metrics
 
     // Flag to indicate whether the simulation is initialized
@@ -85,6 +86,15 @@ public:
     Body *getBodies() const
     {
         return h_bodies;
+    }
+
+    /**
+     * @brief Get the bodies array
+     * @return Pointer to the device bodies array
+     */
+    Body *getDeviceBodies() const
+    {
+        return d_bodies;
     }
 
     /**

@@ -3,10 +3,10 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
 
-SimulationUIManager::SimulationUIManager(SimulationState &state)
-    : simulationState_(state)
-{
-}
+// SimulationUIManager::SimulationUIManager(SimulationState &state)
+//     : simulationState_(state)
+// {
+// }
 
 void SimulationUIManager::renderUI(GLFWwindow *window)
 {
@@ -23,8 +23,16 @@ void SimulationUIManager::renderUI(GLFWwindow *window)
     renderPerformanceInfo();
     renderSimulationControls();
     renderBodyCountSelector();
+    ImGui::Separator();
+    static float particleSize = 3.0f; // Valor inicial
+    if (ImGui::SliderFloat("Tamaño de Partículas", &particleSize, 0.5f, 15.0f, "%.1f"))
+    {
+        // Cuando el valor cambia, actualizar el renderer
+        renderer.setParticleSize(particleSize);
+    }
+    
     renderSimulationOptionsPanel();
-
+    
     ImGui::End();
 
     // Render ImGui

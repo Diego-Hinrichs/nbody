@@ -26,7 +26,9 @@ public:
 
     // Render the scene
     void render(float aspectRatio);
-
+    void setParticleSize(float size) { particleSize = size; }
+    float getParticleSize() const { return particleSize; }
+    
 private:
     // Reference to simulation state for dynamic parameters
     SimulationState &simulationState_;
@@ -38,6 +40,7 @@ private:
     // Body position and mass data
     std::vector<glm::vec4> bodyPositions_;
     int numBodies_;
+    float particleSize = 3.0f;
 
     // Shader compilation helpers
     GLuint compileShader(GLenum type, const char *source);

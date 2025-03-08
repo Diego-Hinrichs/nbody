@@ -3,6 +3,7 @@
 #include <limits>
 #include <cmath>
 
+// Ejemplo de shader de vértices mejorado que incluye tamaño variable
 // Vertex Shader
 const char *vertexShaderSource = R"(
     #version 330 core
@@ -265,13 +266,6 @@ void OpenGLRenderer::init()
         if (err != GL_NO_ERROR)
             std::cerr << "Error setting blend function: " << err << std::endl;
 
-        // Point rendering optimizations
-        // glEnable(GL_POINT_SMOOTH);
-        // glHint(GL_POINT_SMOOTH_HINT, GL_NICEST);
-        // err = glGetError();
-        // if (err != GL_NO_ERROR)
-        //     std::cerr << "Error configuring point rendering: " << err << std::endl;
-
         // Create the shader program with comprehensive error checking
         createShaderProgram();
 
@@ -310,9 +304,6 @@ void OpenGLRenderer::render(float aspectRatio)
 {
     if (numBodies_ == 0 || shaderProgram_ == 0)
     {
-        // std::cerr << "Rendering conditions not met: "
-        //           << "numBodies=" << numBodies_
-        //           << ", shaderProgram=" << shaderProgram_ << std::endl;
         return;
     }
 
@@ -338,7 +329,7 @@ void OpenGLRenderer::render(float aspectRatio)
 
     // Scale factor for adjusting normalized coordinates
     float scaleFactor = 1.0f * zoomFactor;
-    
+
     // Use shader program
     glUseProgram(shaderProgram_);
 
@@ -351,7 +342,8 @@ void OpenGLRenderer::render(float aspectRatio)
     // Set uniform values
     glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
-    glUniform1f(pointSizeLoc, 5.0f + (zoomFactor * 0.5f));
+    // glUniform1f(pointSizeLoc, 5.0f + (zoomFactor * 0.5f));
+    glUniform1f(pointSizeLoc, particleSize);
     glUniform1f(scaleFactorLoc, scaleFactor);
 
     // Clear buffers with a nice dark background
@@ -368,14 +360,12 @@ void OpenGLRenderer::render(float aspectRatio)
 }
 
 void OpenGLRenderer::updateBodies(Body *bodies, int numBodies)
-{   
+{
     if (numBodies <= 0 || !bodies)
     {
         std::cerr << "Warning: No bodies to update or invalid data." << std::endl;
         return;
     }
-
-    // std::cout << "Updating " << numBodies << " bodies" << std::endl;
 
     // Find coordinate center to help with scaling
     Vector centerOfMass(0, 0, 0);
@@ -403,32 +393,12 @@ void OpenGLRenderer::updateBodies(Body *bodies, int numBodies)
         maxY = std::max(maxY, bodies[i].position.y);
         minZ = std::min(minZ, bodies[i].position.z);
         maxZ = std::max(maxZ, bodies[i].position.z);
-
-        // Print first 10 bodies in detail
-        // if (i < 10)
-        // {
-        //     std::cout << "Body " << i
-        //               << ": x=" << bodies[i].position.x
-        //               << ", y=" << bodies[i].position.y
-        //               << ", z=" << bodies[i].position.z
-        //               << ", mass=" << bodies[i].mass << std::endl;
-        // }
     }
 
     // Normalize center of mass
     centerOfMass.x /= totalMass;
     centerOfMass.y /= totalMass;
     centerOfMass.z /= totalMass;
-
-    // std::cout << "Center of Mass: "
-    //           << "x=" << centerOfMass.x
-    //           << ", y=" << centerOfMass.y
-    //           << ", z=" << centerOfMass.z << std::endl;
-
-    // std::cout << "Coordinate Ranges:" << std::endl;
-    // std::cout << "X: " << minX << " to " << maxX << std::endl;
-    // std::cout << "Y: " << minY << " to " << maxY << std::endl;
-    // std::cout << "Z: " << minZ << " to " << maxZ << std::endl;
 
     // Prepare vector for combined position and mass data
     std::vector<float> combinedData;
@@ -446,7 +416,7 @@ void OpenGLRenderer::updateBodies(Body *bodies, int numBodies)
         float normalizedX = static_cast<float>((bodies[i].position.x - centerOfMass.x) / maxRange);
         float normalizedY = static_cast<float>((bodies[i].position.y - centerOfMass.y) / maxRange);
         float normalizedZ = static_cast<float>((bodies[i].position.z - centerOfMass.z) / maxRange);
-        
+
         // Add normalized coordinates
         combinedData.push_back(normalizedX);
         combinedData.push_back(normalizedY);
@@ -479,7 +449,4 @@ void OpenGLRenderer::updateBodies(Body *bodies, int numBodies)
 
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
-
-    // Debug print for rendering
-    // std::cout << "Buffer updated with " << numBodies << " bodies" << std::endl;
 }

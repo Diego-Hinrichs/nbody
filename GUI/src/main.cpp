@@ -68,14 +68,14 @@ void APIENTRY glDebugOutput(GLenum source, GLenum type, GLuint id, GLenum severi
 }
 
 // Keyboard callback function to handle ESC key to exit the simulation
-void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
+void key_callback(GLFWwindow *window, int key, int scancode, int action, int mods)
 {
     // Check if escape key was pressed
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
     {
         // Set the window to close and stop the simulation
         glfwSetWindowShouldClose(window, GLFW_TRUE);
-        
+
         // If we have access to the simulation state, also set running to false
         if (g_simulationState != nullptr)
         {
@@ -92,6 +92,10 @@ void simulationThread(SimulationState *state)
         SimulationBase *simulation = nullptr;
         int currentNumBodies = state->numBodies.load();
         bool currentUseSFC = state->useSFC.load();
+
+        // Configuración para reducir transferencias CPU-GPU
+        const int VISUALIZATION_FREQUENCY = 24; // Actualizar visualización cada 2 cuadros
+        int frameCounter = 0;
 
         // Create initial simulation
         if (currentUseSFC)
@@ -170,34 +174,44 @@ void simulationThread(SimulationState *state)
 
                 state->restart.store(false);
 
-                // Reset time
+                // Reset time and frame counter
                 lastTime = std::chrono::steady_clock::now();
+                frameCounter = 0;
             }
 
             // Update simulation
             simulation->update();
+            
+            // Incrementar contador de cuadros
+            frameCounter++;
 
-            // Read bodies from device
-            simulation->copyBodiesFromDevice();
-
-            // Update shared bodies for rendering
-            try
+            // Leer cuerpos desde el dispositivo solo cuando sea necesario
+            if (frameCounter >= VISUALIZATION_FREQUENCY) 
             {
-                std::lock_guard<std::mutex> lock(state->mtx);
+                frameCounter = 0;
+                
+                // Copiar datos desde GPU a CPU
+                simulation->copyBodiesFromDevice();
 
-                // Cleanup old data
-                delete[] state->sharedBodies;
-                state->sharedBodies = nullptr;
+                // Update shared bodies for rendering
+                try
+                {
+                    std::lock_guard<std::mutex> lock(state->mtx);
 
-                // Allocate and copy new data
-                state->sharedBodies = new Body[currentNumBodies];
-                memcpy(state->sharedBodies, simulation->getBodies(), currentNumBodies * sizeof(Body));
-                state->currentBodiesCount = currentNumBodies;
-            }
-            catch (const std::exception &e)
-            {
-                logMessage("Exception during body data update: " + std::string(e.what()), true);
-                break;
+                    // Cleanup old data
+                    delete[] state->sharedBodies;
+                    state->sharedBodies = nullptr;
+
+                    // Allocate and copy new data
+                    state->sharedBodies = new Body[currentNumBodies];
+                    memcpy(state->sharedBodies, simulation->getBodies(), currentNumBodies * sizeof(Body));
+                    state->currentBodiesCount = currentNumBodies;
+                }
+                catch (const std::exception &e)
+                {
+                    logMessage("Exception during body data update: " + std::string(e.what()), true);
+                    break;
+                }
             }
 
             // Calculate performance metrics
@@ -232,13 +246,12 @@ void simulationThread(SimulationState *state)
         logMessage("Fatal error in simulation thread: " + std::string(e.what()), true);
     }
 }
-
 int main(int argc, char **argv)
 {
     try
-    {   
+    {
         std::cout << "Attempting to use dedicated GPU..." << std::endl;
-        
+
         // Parse command-line arguments
         SimulationConfig config = parseArgs(argc, argv);
 
@@ -267,20 +280,20 @@ int main(int argc, char **argv)
         if (config.fullscreen)
         {
             window = glfwCreateWindow(
-            mode->width,
-            mode->height,
-            "N-Body Simulation",
-            monitor, // Fullscreen mode
-            nullptr);
+                mode->width,
+                mode->height,
+                "N-Body Simulation",
+                monitor, // Fullscreen mode
+                nullptr);
         }
         else
         {
             window = glfwCreateWindow(
-            1280,
-            720,
-            "N-Body Simulation",
-            nullptr, // Windowed mode
-            nullptr);
+                1280,
+                720,
+                "N-Body Simulation",
+                nullptr, // Windowed mode
+                nullptr);
         }
 
         if (!window)
@@ -295,7 +308,7 @@ int main(int argc, char **argv)
         glfwSwapInterval(1); // Enable vsync
 
         glfwSetKeyCallback(window, key_callback);
-        
+
         // Load OpenGL functions with GLAD
         if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
         {
@@ -337,7 +350,7 @@ int main(int argc, char **argv)
         renderer.init();
 
         // Create UI manager
-        SimulationUIManager uiManager(simulationState);
+        SimulationUIManager uiManager(simulationState, renderer);
 
         // Set global simulation state for callbacks
         g_simulationState = &simulationState;
