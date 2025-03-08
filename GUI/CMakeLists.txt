@@ -21,6 +21,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Find system packages
+find_package(OpenMP REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(CUDAToolkit REQUIRED)
 
@@ -94,10 +95,11 @@ if(NOT EXISTS ${GLAD_INCLUDE_DIR}/glad/glad.h)
     message(FATAL_ERROR "GLAD header not found in ${GLAD_INCLUDE_DIR}")
 endif()
 
-# Locate CUDA kernel source files
-file(GLOB CUDA_KERNEL_SOURCES 
+# Locate source files
+file(GLOB SOURCES_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ui/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/simulation/*.cu
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/simulation/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/*.cu
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sfc/*.cu
     ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cu
@@ -116,7 +118,7 @@ target_include_directories(glad PUBLIC
 # Define the executable sources without GLAD
 set(EXECUTABLE_SOURCES 
     src/main.cpp
-    ${CUDA_KERNEL_SOURCES}
+    ${SOURCES_FILES}
     ${IMGUI_SOURCES}
     src/ui/simulation_ui_manager.cpp
     src/ui/opengl_renderer.cpp
@@ -151,6 +153,7 @@ target_include_directories(BarnesHutSimulation PRIVATE
 target_link_libraries(BarnesHutSimulation 
     glad
     OpenGL::GL
+    OpenMP::OpenMP_CXX
     glfw
     glm
     CUDA::cudart

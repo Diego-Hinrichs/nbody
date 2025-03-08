@@ -1,9 +1,13 @@
 #include "../../include/ui/simulation_state.h"
+#include <omp.h>
 
 SimulationState::SimulationState() : running(true),
                                      restart(false),
-                                     useSFC(false),
                                      isPaused(false),
+                                     simulationMethod(SimulationMethod::BARNES_HUT), // Default to Barnes-Hut
+                                     useOpenMP(true),                                // Enable OpenMP by default
+                                     openMPThreads(omp_get_max_threads()),           // Use all available cores by default
+                                     useSFC(false),
                                      sfcOrderingMode(SFCOrderingMode::PARTICLES),
                                      reorderFrequency(10), // Reorder every 10 iterations by default
                                      bodyDistribution(BodyDistribution::SOLAR_SYSTEM),

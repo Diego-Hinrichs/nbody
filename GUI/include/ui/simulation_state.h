@@ -17,11 +17,21 @@ enum class SFCOrderingMode
 // Enum for initial body distribution
 enum class BodyDistribution
 {
-    SOLAR_SYSTEM,   // Solar system like distribution
-    GALAXY,         // Galaxy-like spiral
-    BINARY_SYSTEM,  // Binary star system
-    UNIFORM_SPHERE, // Uniform distribution in sphere
-    RANDOM_CLUSTERS // Random clusters of bodies
+    SOLAR_SYSTEM,
+    GALAXY,
+    BINARY_SYSTEM,
+    UNIFORM_SPHERE,
+    RANDOM_CLUSTERS
+};
+
+// Enum for simulation method
+enum class SimulationMethod
+{
+    CPU_DIRECT_SUM,
+    GPU_DIRECT_SUM,
+    CPU_BARNES_HUT,
+    BARNES_HUT,
+    SFC_BARNES_HUT
 };
 
 struct SimulationState
@@ -31,6 +41,11 @@ struct SimulationState
     std::atomic<bool> restart;
     std::atomic<bool> useSFC;
     std::atomic<bool> isPaused;
+
+    // Simulation method
+    std::atomic<SimulationMethod> simulationMethod;
+    std::atomic<bool> useOpenMP;    // For CPU methods
+    std::atomic<int> openMPThreads; // For CPU methods
 
     // SFC specific parameters
     std::atomic<SFCOrderingMode> sfcOrderingMode;

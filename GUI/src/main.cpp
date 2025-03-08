@@ -11,8 +11,12 @@
 #include <glm/glm.hpp>
 
 #include "../include/common/constants.cuh"
+#include "../include/simulation/simulation_base.cuh"
 #include "../include/simulation/barnes_hut.cuh"
 #include "../include/simulation/sfc_barnes_hut.cuh"
+#include "../include/simulation/cpu_direct_sum.hpp"
+#include "../include/simulation/gpu_direct_sum.cuh"
+#include "../include/simulation/cpu_barnes_hut.hpp"
 #include "../include/ui/simulation_state.h"
 #include "../include/ui/opengl_renderer.h"
 #include "../include/ui/simulation_ui_manager.h"
@@ -90,40 +94,77 @@ void simulationThread(SimulationState *state)
     try
     {
         SimulationBase *simulation = nullptr;
+
+        // Current simulation parameters
         int currentNumBodies = state->numBodies.load();
+        SimulationMethod currentMethod = state->simulationMethod.load();
         bool currentUseSFC = state->useSFC.load();
         SFCOrderingMode currentOrderingMode = state->sfcOrderingMode.load();
         int currentReorderFreq = state->reorderFrequency.load();
         BodyDistribution currentDistribution = state->bodyDistribution.load();
         unsigned int currentSeed = state->randomSeed.load();
+        bool currentUseOpenMP = state->useOpenMP.load();
+        int currentOpenMPThreads = state->openMPThreads.load();
 
         // Configuración para reducir transferencias CPU-GPU
         const int VISUALIZATION_FREQUENCY = 24; // Actualizar visualización cada 24 cuadros
         int frameCounter = 0;
 
-        // Create initial simulation with distribution parameters
-        if (currentUseSFC)
+        // Create initial simulation based on selected method
+        switch (currentMethod)
         {
+        case SimulationMethod::CPU_DIRECT_SUM:
+            simulation = new CPUDirectSum(
+                currentNumBodies,
+                currentUseOpenMP,     // Use OpenMP
+                currentOpenMPThreads, // Thread count
+                currentDistribution,  // Distribution type
+                currentSeed           // Random seed
+            );
+            break;
+
+        case SimulationMethod::GPU_DIRECT_SUM:
+            simulation = new GPUDirectSum(
+                currentNumBodies,
+                currentDistribution, // Distribution type
+                currentSeed          // Random seed
+            );
+            break;
+
+        case SimulationMethod::SFC_BARNES_HUT:
             simulation = new SFCBarnesHut(
                 currentNumBodies,
-                true,                // Use SFC
+                true,                // SFC is always enabled for this method
                 currentOrderingMode, // Ordering mode
                 currentReorderFreq,  // Reorder frequency
                 currentDistribution, // Distribution type
                 currentSeed          // Random seed
             );
-            // Set distribution parameters
-            simulation->setDistributionAndSeed(currentDistribution, currentSeed);
-        }
-        else
-        {
+            break;
+
+        case SimulationMethod::BARNES_HUT:
+        default:
             simulation = new BarnesHut(
                 currentNumBodies,
                 currentDistribution, // Distribution type
                 currentSeed          // Random seed
             );
-            // Set distribution parameters
-            simulation->setDistributionAndSeed(currentDistribution, currentSeed);
+
+            // Check if SFC should be enabled for regular Barnes-Hut
+            if (currentUseSFC && simulation)
+            {
+                // Convert to SFCBarnesHut for SFC support
+                delete simulation;
+                simulation = new SFCBarnesHut(
+                    currentNumBodies,
+                    true,                // Enable SFC
+                    currentOrderingMode, // Ordering mode
+                    currentReorderFreq,  // Reorder frequency
+                    currentDistribution, // Distribution type
+                    currentSeed          // Random seed
+                );
+            }
+            break;
         }
 
         if (!simulation)
@@ -154,21 +195,56 @@ void simulationThread(SimulationState *state)
             }
 
             // Check if simulation restart is needed
-            if (state->restart.load() ||
-                currentNumBodies != state->numBodies.load() ||
-                currentUseSFC != state->useSFC.load() ||
-                currentOrderingMode != state->sfcOrderingMode.load() ||
-                currentReorderFreq != state->reorderFrequency.load() ||
-                currentDistribution != state->bodyDistribution.load() ||
-                (state->seedWasChanged && currentSeed != state->randomSeed.load()))
+            bool shouldRestart = state->restart.load() ||
+                                 currentNumBodies != state->numBodies.load() ||
+                                 currentMethod != state->simulationMethod.load() ||
+                                 currentDistribution != state->bodyDistribution.load() ||
+                                 (state->seedWasChanged && currentSeed != state->randomSeed.load());
+
+            // Check method-specific restart conditions
+            if (!shouldRestart)
+            {
+                switch (currentMethod)
+                {
+                case SimulationMethod::CPU_DIRECT_SUM:
+                    shouldRestart = (currentUseOpenMP != state->useOpenMP.load() ||
+                                     currentOpenMPThreads != state->openMPThreads.load());
+                    break;
+
+                case SimulationMethod::BARNES_HUT:
+                    shouldRestart = (currentUseSFC != state->useSFC.load());
+                    // Only check SFC parameters if SFC is enabled
+                    if (currentUseSFC && state->useSFC.load())
+                    {
+                        shouldRestart = shouldRestart ||
+                                        currentOrderingMode != state->sfcOrderingMode.load() ||
+                                        currentReorderFreq != state->reorderFrequency.load();
+                    }
+                    break;
+
+                case SimulationMethod::SFC_BARNES_HUT:
+                    shouldRestart = (currentOrderingMode != state->sfcOrderingMode.load() ||
+                                     currentReorderFreq != state->reorderFrequency.load());
+                    break;
+
+                default:
+                    break;
+                }
+            }
+
+            // Restart simulation if needed
+            if (shouldRestart)
             {
                 // Update parameters
                 currentNumBodies = state->numBodies.load();
+                currentMethod = state->simulationMethod.load();
                 currentUseSFC = state->useSFC.load();
                 currentOrderingMode = state->sfcOrderingMode.load();
                 currentReorderFreq = state->reorderFrequency.load();
                 currentDistribution = state->bodyDistribution.load();
                 currentSeed = state->randomSeed.load();
+                currentUseOpenMP = state->useOpenMP.load();
+                currentOpenMPThreads = state->openMPThreads.load();
 
                 // Reset the seed change flag
                 state->seedWasChanged = false;
@@ -179,24 +255,62 @@ void simulationThread(SimulationState *state)
 
                 try
                 {
-                    if (currentUseSFC)
+                    // Create the appropriate simulation based on method
+                    switch (currentMethod)
                     {
+                    case SimulationMethod::CPU_DIRECT_SUM:
+                        simulation = new CPUDirectSum(
+                            currentNumBodies,
+                            currentUseOpenMP,     // Use OpenMP
+                            currentOpenMPThreads, // Thread count
+                            currentDistribution,  // Distribution type
+                            currentSeed           // Random seed
+                        );
+                        break;
+
+                    case SimulationMethod::GPU_DIRECT_SUM:
+                        simulation = new GPUDirectSum(
+                            currentNumBodies,
+                            currentDistribution, // Distribution type
+                            currentSeed          // Random seed
+                        );
+                        break;
+
+                    case SimulationMethod::SFC_BARNES_HUT:
                         simulation = new SFCBarnesHut(
                             currentNumBodies,
-                            true,                // Use SFC
+                            true,                // SFC is always enabled for this method
                             currentOrderingMode, // Ordering mode
                             currentReorderFreq,  // Reorder frequency
                             currentDistribution, // Distribution type
                             currentSeed          // Random seed
                         );
-                    }
-                    else
-                    {
-                        simulation = new BarnesHut(
-                            currentNumBodies,
-                            currentDistribution, // Distribution type
-                            currentSeed          // Random seed
-                        );
+                        break;
+
+                    case SimulationMethod::BARNES_HUT:
+                    default:
+                        if (currentUseSFC)
+                        {
+                            // Use SFCBarnesHut if SFC is enabled
+                            simulation = new SFCBarnesHut(
+                                currentNumBodies,
+                                true,                // Enable SFC
+                                currentOrderingMode, // Ordering mode
+                                currentReorderFreq,  // Reorder frequency
+                                currentDistribution, // Distribution type
+                                currentSeed          // Random seed
+                            );
+                        }
+                        else
+                        {
+                            // Use regular Barnes-Hut
+                            simulation = new BarnesHut(
+                                currentNumBodies,
+                                currentDistribution, // Distribution type
+                                currentSeed          // Random seed
+                            );
+                        }
+                        break;
                     }
 
                     if (!simulation)
@@ -205,8 +319,7 @@ void simulationThread(SimulationState *state)
                         break;
                     }
 
-                    // Set distribution parameters
-                    simulation->setDistributionAndSeed(currentDistribution, currentSeed);
+                    // Setup the simulation
                     simulation->setup();
                 }
                 catch (const std::exception &e)

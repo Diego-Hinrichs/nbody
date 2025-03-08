@@ -21,18 +21,24 @@ public:
     // SimulationUIManager(SimulationState &state);
     SimulationUIManager(SimulationState& simulationState, OpenGLRenderer& rendererRef)
     : simulationState_(simulationState), renderer(rendererRef) {}
-    // Render the simulation UI
+
     void renderUI(GLFWwindow *window);
 
 private:
     SimulationState &simulationState_;
-    OpenGLRenderer& renderer; // Agregar referencia al renderer
-    // UI rendering methods
-    void renderSimulationControls();
+    OpenGLRenderer& renderer;
+
+    // void renderSimulationControls();
     void renderPerformanceInfo();
-    void renderBodyCountSelector();
-    void renderDistributionOptions(); // New method for distribution options
-    void renderSimulationOptionsPanel();
+    // void renderBodyCountSelector();
+    // void renderDistributionOptions();
+    // void renderSimulationOptionsPanel();
+    void renderSimulationMethodSelector();
+
+    void renderBasicControls();
+    void renderVisualizationOptions();
+    void renderBodyGenerationOptions();
+    void renderAdvancedOptions();
 };
 
 #endif // SIMULATION_UI_MANAGER_H
