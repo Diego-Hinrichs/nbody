@@ -102,50 +102,6 @@ void SimulationUIManager::renderBasicControls()
     }
 }
 
-void SimulationUIManager::renderSimulationMethodSelector()
-{
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Select Simulation Algorithm");
-
-    // Method selection
-    static const char *methodTypes[] = {
-        "CPU Direct Sum",
-        "GPU Direct Sum",
-        "CPU Barnes-Hut",
-        "GPU Barnes-Hut"};
-
-    int currentMethod = static_cast<int>(simulationState_.simulationMethod.load());
-    if (ImGui::Combo("Algorithm", &currentMethod, methodTypes, IM_ARRAYSIZE(methodTypes)))
-    {
-        simulationState_.simulationMethod.store(static_cast<SimulationMethod>(currentMethod));
-
-        // Reset options based on new method selected
-        switch (static_cast<SimulationMethod>(currentMethod))
-        {
-        case SimulationMethod::CPU_DIRECT_SUM:
-            // Default options for CPU Direct Sum
-            simulationState_.useOpenMP.store(true);
-            simulationState_.openMPThreads.store(omp_get_max_threads());
-            break;
-
-        case SimulationMethod::CPU_BARNES_HUT:
-            // Default options for CPU Barnes-Hut
-            simulationState_.useOpenMP.store(true);
-            simulationState_.openMPThreads.store(omp_get_max_threads());
-            break;
-
-        case SimulationMethod::GPU_DIRECT_SUM:
-            // No specific options for GPU Direct Sum
-            break;
-
-        case SimulationMethod::GPU_BARNES_HUT:
-            // No specific default options
-            break;
-        }
-
-        simulationState_.restart.store(true);
-    }
-}
-
 void SimulationUIManager::renderVisualizationOptions()
 {
     ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Visualization Settings");
@@ -231,7 +187,74 @@ void SimulationUIManager::renderBodyGenerationOptions()
         simulationState_.restart.store(true);
     }
 }
+// Fix for renderSimulationMethodSelector()
+void SimulationUIManager::renderSimulationMethodSelector()
+{
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Select Simulation Algorithm");
 
+    // Method selection - keep the 4 original options
+    static const char *methodTypes[] = {
+        "CPU Direct Sum",
+        "GPU Direct Sum",
+        "CPU Barnes-Hut",
+        "GPU Barnes-Hut"
+    };
+    
+    // Map between UI index and actual enum values
+    static const SimulationMethod methodMap[] = {
+        SimulationMethod::CPU_DIRECT_SUM,    // 0
+        SimulationMethod::GPU_DIRECT_SUM,    // 1
+        SimulationMethod::CPU_BARNES_HUT,    // 2
+        SimulationMethod::GPU_BARNES_HUT     // 3
+    };
+    
+    // Reverse mapping to find UI index from enum
+    int currentMethod = 0; // Default to first option
+    SimulationMethod actualMethod = simulationState_.simulationMethod.load();
+    
+    // Find the matching UI index for the current method
+    for (int i = 0; i < IM_ARRAYSIZE(methodMap); i++) {
+        if (methodMap[i] == actualMethod) {
+            currentMethod = i;
+            break;
+        }
+    }
+    
+    if (ImGui::Combo("Algorithm", &currentMethod, methodTypes, IM_ARRAYSIZE(methodTypes)))
+    {
+        // Map the UI selection back to the actual enum
+        SimulationMethod selectedMethod = methodMap[currentMethod];
+        simulationState_.simulationMethod.store(selectedMethod);
+
+        // Reset options based on new method selected
+        switch (selectedMethod)
+        {
+        case SimulationMethod::CPU_DIRECT_SUM:
+            // Default options for CPU Direct Sum
+            simulationState_.useOpenMP.store(true);
+            simulationState_.openMPThreads.store(omp_get_max_threads());
+            break;
+
+        case SimulationMethod::CPU_BARNES_HUT:
+            // Default options for CPU Barnes-Hut
+            simulationState_.useOpenMP.store(true);
+            simulationState_.openMPThreads.store(omp_get_max_threads());
+            break;
+
+        case SimulationMethod::GPU_DIRECT_SUM:
+            // No specific options for GPU Direct Sum
+            break;
+
+        case SimulationMethod::GPU_BARNES_HUT:
+            // No specific default options
+            break;
+        }
+
+        simulationState_.restart.store(true);
+    }
+}
+
+// Fix for renderAdvancedOptions()
 void SimulationUIManager::renderAdvancedOptions()
 {
     SimulationMethod currentMethod = simulationState_.simulationMethod.load();
@@ -276,20 +299,17 @@ void SimulationUIManager::renderAdvancedOptions()
     // Space-Filling Curve Options
     ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Space-Filling Curve Options");
 
-    // Always show SFC options for Barnes-Hut variants, regardless of CPU or GPU
-    // Use explicit integers to avoid any potential enum comparison issues
-    int methodValue = static_cast<int>(currentMethod);
-    bool isCPUBarnesHut = (methodValue == static_cast<int>(SimulationMethod::CPU_BARNES_HUT));
-    bool isGPUBarnesHut = (methodValue == static_cast<int>(SimulationMethod::GPU_BARNES_HUT));
-    bool showSFCOptions = isCPUBarnesHut || isGPUBarnesHut;
+    // Show SFC options for Barnes-Hut methods only
+    bool isBarnesHut = (currentMethod == SimulationMethod::CPU_BARNES_HUT ||
+                        currentMethod == SimulationMethod::GPU_BARNES_HUT);
 
-    if (!showSFCOptions)
+    if (!isBarnesHut)
     {
         ImGui::TextWrapped("Space-Filling Curve options are only applicable to Barnes-Hut methods.");
         return;
     }
 
-    // SFC Toggle for both CPU and GPU Barnes-Hut
+    // SFC Toggle
     bool sfcEnabled = simulationState_.useSFC.load();
     if (ImGui::Checkbox("Enable Space-Filling Curve", &sfcEnabled))
     {
