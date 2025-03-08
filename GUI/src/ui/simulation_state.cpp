@@ -2,7 +2,7 @@
 
 SimulationState::SimulationState() : running(true),
                                      restart(false),
-                                     useSFC(true),
+                                     useSFC(false),
                                      isPaused(false),
                                      numBodies(1000),
                                      zoomFactor(1.0),

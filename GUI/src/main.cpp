@@ -33,8 +33,8 @@ void logMessage(const std::string &message, bool isError = false)
 // Configuration structure
 struct SimulationConfig
 {
-    int initialBodies = 1000;
-    bool useSFC = true;
+    int initialBodies = 1024;
+    bool useSFC = false;
     bool fullscreen = true;
     bool verbose = false;
 };

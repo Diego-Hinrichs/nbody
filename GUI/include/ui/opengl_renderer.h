@@ -40,7 +40,7 @@ private:
     // Body position and mass data
     std::vector<glm::vec4> bodyPositions_;
     int numBodies_;
-    float particleSize = 3.0f;
+    float particleSize = 5.0f;
 
     // Shader compilation helpers
     GLuint compileShader(GLenum type, const char *source);

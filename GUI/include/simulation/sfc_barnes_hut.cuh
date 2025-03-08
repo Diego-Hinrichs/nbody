@@ -1,7 +1,7 @@
 #ifndef SFC_BARNES_HUT_CUH
 #define SFC_BARNES_HUT_CUH
 
-#include "barnes_hut.cuh"
+#include "../../include/simulation/barnes_hut.cuh"
 #include "../sfc/body_sorter.cuh"
 
 /**
@@ -18,6 +18,7 @@ private:
     Vector minBound;         // Minimum domain bounds
     Vector maxBound;         // Maximum domain bounds
     sfc::BodySorter *sorter; // Body sorter for SFC ordering
+    int *d_orderedIndices;   // Device array for SFC-ordered indices
 
     /**
      * @brief Update domain bounds based on root node
@@ -66,6 +67,24 @@ public:
     bool isSFCEnabled() const
     {
         return useSFC;
+    }
+
+    /**
+     * @brief Get the SFC-ordered indices array
+     * @return Pointer to the device array of SFC-ordered indices
+     */
+    int *getOrderedIndices() const
+    {
+        return d_orderedIndices;
+    }
+
+    /**
+     * @brief Check if SFC ordering is being used
+     * @return True if SFC ordering is enabled and indices are valid
+     */
+    bool isUsingSFC() const
+    {
+        return useSFC && d_orderedIndices != nullptr;
     }
 };
 

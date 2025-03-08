@@ -1,9 +1,9 @@
+
 #include "../../include/simulation/sfc_barnes_hut.cuh"
 
 SFCBarnesHut::SFCBarnesHut(int numBodies, bool useSpaceFillingCurve)
-    : BarnesHut(numBodies), useSFC(useSpaceFillingCurve), sorter(nullptr)
+    : BarnesHut(numBodies), useSFC(useSpaceFillingCurve), sorter(nullptr), d_orderedIndices(nullptr)
 {
-
     if (useSFC)
     {
         sorter = new sfc::BodySorter(numBodies);
@@ -21,6 +21,9 @@ SFCBarnesHut::~SFCBarnesHut()
         delete sorter;
         sorter = nullptr;
     }
+
+    // No necesitamos liberar d_orderedIndices porque es propiedad del sorter
+    // y se libera en su destructor
 }
 
 void SFCBarnesHut::updateBoundingBox()
@@ -38,14 +41,15 @@ void SFCBarnesHut::orderBodiesBySFC()
 {
     if (!useSFC || !sorter)
     {
+        d_orderedIndices = nullptr;
         return;
     }
 
     // Update bounds for SFC calculation
     updateBoundingBox();
 
-    // Sort bodies using the SFC sorter
-    sorter->sortBodies(d_bodies, minBound, maxBound);
+    // Obtener los índices ordenados por SFC (ya no reordena los cuerpos)
+    d_orderedIndices = sorter->sortBodies(d_bodies, minBound, maxBound);
 }
 
 void SFCBarnesHut::update()
@@ -65,7 +69,14 @@ void SFCBarnesHut::update()
     {
         orderBodiesBySFC();
     }
+    else
+    {
+        d_orderedIndices = nullptr;
+    }
 
+    // El nodo raíz del octree debe conocer si se están usando índices ordenados
+    // y cuáles son esos índices
+    // Esto se hace pasando esta información a los kernels constructOctree y computeForces
     constructOctree();
     computeForces();
 }

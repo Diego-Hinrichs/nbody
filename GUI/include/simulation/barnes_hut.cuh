@@ -1,14 +1,24 @@
+
 #ifndef BARNES_HUT_CUH
 #define BARNES_HUT_CUH
 
 #include "simulation_base.cuh"
 
-// Forward declarations of kernel functions
+// Forward declarations de kernels con nuevos parámetros
 __global__ void ResetKernel(Node *nodes, int *mutex, int nNodes, int nBodies);
-__global__ void ComputeBoundingBoxKernel(Node *nodes, Body *bodies, int *mutex, int nBodies);
-__global__ void ConstructOctTreeKernel(Node *nodes, Body *bodies, Body *bodiesBuffer,
-                                       int nodeIndex, int nNodes, int nBodies, int leafLimit);
-__global__ void ComputeForceKernel(Node *nodes, Body *bodies, int nNodes, int nBodies, int leafLimit);
+
+__global__ void ComputeBoundingBoxKernel(
+    Node *nodes, Body *bodies, int *orderedIndices, bool useSFC,
+    int *mutex, int nBodies);
+
+extern "C" void BuildOptimizedOctTree(
+    Node *d_nodes, Body *d_bodies, Body *d_tempBodies,
+    int *orderedIndices, bool useSFC,
+    int nNodes, int nBodies, int leafLimit);
+
+__global__ void ComputeForceKernel(
+    Node *nodes, Body *bodies, int *orderedIndices, bool useSFC,
+    int nNodes, int nBodies, int leafLimit);
 
 /**
  * @brief Barnes-Hut N-body simulation implementation
@@ -27,6 +37,10 @@ protected:
     int *d_mutex;  // Device mutex for synchronization
 
     Body *d_bodiesBuffer; // Temporary buffer for octree construction
+
+    // Nuevos métodos para manejar índices SFC (definidos con valores por defecto)
+    virtual int *getOrderedIndices() const { return nullptr; }
+    virtual bool isUsingSFC() const { return false; }
 
     // Kernel wrapper methods
     /**

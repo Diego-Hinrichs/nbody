@@ -1,6 +1,8 @@
 #include "../../include/common/types.cuh"
 #include "../../include/common/constants.cuh"
 
+#define NODE_CACHE_SIZE 64 // Número de nodos a cachear en memoria compartida
+
 /**
  * @brief Calculate the distance between two positions
  *
@@ -30,269 +32,46 @@ __device__ bool isCollide(Body &b1, Vector cm)
 }
 
 /**
- * @brief Compute force on a body using the Barnes-Hut algorithm
+ * @brief CUDA kernel to compute the forces between bodies in an N-Body simulation.
  *
- * Recursively traverses the octree to compute gravitational forces.
- * Uses multipole approximation when the distance is large enough
- * compared to the node size.
+ * This kernel calculates the gravitational forces exerted on each body by all other bodies
+ * in the simulation. The forces are then used to update the velocities and positions of the bodies.
  *
- * @param node Array of octree nodes
- * @param bodies Array of bodies
- * @param nodeIndex Index of current node in traversal
- * @param bodyIndex Index of body to compute forces for
- * @param nNodes Total number of nodes
- * @param nBodies Total number of bodies
- * @param leafLimit Leaf node limit
- * @param width Width of current node
+ * @param positions Array of body positions in the simulation.
+ * @param velocities Array of body velocities in the simulation.
+ * @param forces Array to store the computed forces for each body.
+ * @param numBodies The total number of bodies in the simulation.
+ * @param deltaTime The time step for the simulation.
+ * @param gravitationalConstant The gravitational constant used in the force calculation.
  */
-// __device__ void ComputeForce(
-//     Node *node, Body *bodies, int nodeIndex, int bodyIndex,
-//     int nNodes, int nBodies, int leafLimit, double width)
-// {
-
-//     // Check if node index is valid
-//     if (nodeIndex >= nNodes)
-//     {
-//         return;
-//     }
-
-//     Node curNode = node[nodeIndex];
-//     Body bi = bodies[bodyIndex];
-
-//     // Skip empty nodes
-//     if (curNode.start == -1 && curNode.end == -1)
-//     {
-//         return;
-//     }
-
-//     // Skip self-interaction
-//     if (curNode.isLeaf && curNode.start == bodyIndex && curNode.end == bodyIndex)
-//     {
-//         return;
-//     }
-
-//     // Determine if we can use multipole approximation
-//     bool useMultipole = false;
-//     if (!curNode.isLeaf && curNode.totalMass > 0.0)
-//     {
-//         double dist = getDistance(bi.position, curNode.centerMass);
-//         if (dist > 0.0 && width / dist < THETA)
-//         {
-//             useMultipole = true;
-//         }
-//     }
-
-//     // Apply force if:
-//     // 1. Node is a leaf, or
-//     // 2. We can use multipole approximation
-//     if (curNode.isLeaf || useMultipole)
-//     {
-//         // Skip if center of mass not computed or collision detected
-//         if (curNode.totalMass <= 0.0 || isCollide(bi, curNode.centerMass))
-//         {
-//             return;
-//         }
-
-//         // Calculate vector from body to center of mass
-//         Vector rij = Vector(
-//             curNode.centerMass.x - bi.position.x,
-//             curNode.centerMass.y - bi.position.y,
-//             curNode.centerMass.z - bi.position.z);
-
-//         // Square distance with softening
-//         double r2 = rij.lengthSquared();
-//         double r = sqrt(r2 + (E * E));
-
-//         // Calculate gravitational force: G * m1 * m2 / r^3
-//         double f = (GRAVITY * bi.mass * curNode.totalMass) / (r * r * r);
-
-//         // Apply force to body acceleration
-//         bodies[bodyIndex].acceleration.x += (rij.x * f / bi.mass);
-//         bodies[bodyIndex].acceleration.y += (rij.y * f / bi.mass);
-//         bodies[bodyIndex].acceleration.z += (rij.z * f / bi.mass);
-
-//         return;
-//     }
-
-//     // Recursively traverse child nodes
-//     for (int i = 1; i <= 8; i++)
-//     {
-//         int childIndex = (nodeIndex * 8) + i;
-//         if (childIndex < nNodes)
-//         {
-//             ComputeForce(node, bodies, childIndex, bodyIndex, nNodes, nBodies, leafLimit, width / 2);
-//         }
-//     }
-// }
-
-// /**
-//  * @brief Compute forces on all bodies using the Barnes-Hut algorithm
-//  *
-//  * Each thread processes one body, calculating gravitational forces
-//  * and updating position and velocity.
-//  *
-//  * @param node Array of octree nodes
-//  * @param bodies Array of bodies
-//  * @param nNodes Total number of nodes
-//  * @param nBodies Total number of bodies
-//  * @param leafLimit Leaf node limit
-//  */
-// __global__ void ComputeForceKernel(
-//     Node *node, Body *bodies, int nNodes, int nBodies, int leafLimit)
-// {
-
-//     int i = blockIdx.x * blockDim.x + threadIdx.x;
-
-//     if (i >= nBodies)
-//     {
-//         return;
-//     }
-
-//     // Calculate domain width for multipole criterion
-//     double width = max(
-//         fabs(node[0].botRightBack.x - node[0].topLeftFront.x),
-//         max(
-//             fabs(node[0].botRightBack.y - node[0].topLeftFront.y),
-//             fabs(node[0].botRightBack.z - node[0].topLeftFront.z)));
-
-//     Body &bi = bodies[i];
-
-//     // Skip non-dynamic bodies
-//     if (bi.isDynamic)
-//     {
-//         // Reset acceleration
-//         bi.acceleration = Vector(0.0, 0.0, 0.0);
-
-//         // Compute forces from octree
-//         ComputeForce(node, bodies, 0, i, nNodes, nBodies, leafLimit, width);
-
-//         // Update velocity (Euler integration)
-//         bi.velocity.x += bi.acceleration.x * DT;
-//         bi.velocity.y += bi.acceleration.y * DT;
-//         bi.velocity.z += bi.acceleration.z * DT;
-
-//         // Update position
-//         bi.position.x += bi.velocity.x * DT;
-//         bi.position.y += bi.velocity.y * DT;
-//         bi.position.z += bi.velocity.z * DT;
-//     }
-// }
-
-// Añadir al inicio del archivo force_kernel.cu
-#define NODE_CACHE_SIZE 64 // Número de nodos a cachear en memoria compartida
-
-// Versión modificada de ComputeForce que utiliza la caché de nodos
-__device__ void ComputeForce(
-    Node *globalNodes, Node *sharedNodes, Body *bodies, int nodeIndex, int bodyIndex,
-    int nNodes, int nBodies, int leafLimit, double width)
-{
-    // Verificar si el índice del nodo es válido
-    if (nodeIndex >= nNodes)
-    {
-        return;
-    }
-
-    // Usar memoria compartida para nodos cercanos a la raíz
-    Node curNode;
-    if (nodeIndex < NODE_CACHE_SIZE)
-    {
-        curNode = sharedNodes[nodeIndex];
-    }
-    else
-    {
-        curNode = globalNodes[nodeIndex];
-    }
-
-    Body bi = bodies[bodyIndex];
-
-    // Skip empty nodes
-    if (curNode.start == -1 && curNode.end == -1)
-    {
-        return;
-    }
-
-    // Skip self-interaction
-    if (curNode.isLeaf && curNode.start == bodyIndex && curNode.end == bodyIndex)
-    {
-        return;
-    }
-
-    // Determine if we can use multipole approximation
-    bool useMultipole = false;
-    if (!curNode.isLeaf && curNode.totalMass > 0.0)
-    {
-        double dist = getDistance(bi.position, curNode.centerMass);
-        if (dist > 0.0 && width / dist < THETA)
-        {
-            useMultipole = true;
-        }
-    }
-
-    // Apply force if:
-    // 1. Node is a leaf, or
-    // 2. We can use multipole approximation
-    if (curNode.isLeaf || useMultipole)
-    {
-        // Skip if center of mass not computed or collision detected
-        if (curNode.totalMass <= 0.0 || isCollide(bi, curNode.centerMass))
-        {
-            return;
-        }
-
-        // Calculate vector from body to center of mass
-        Vector rij = Vector(
-            curNode.centerMass.x - bi.position.x,
-            curNode.centerMass.y - bi.position.y,
-            curNode.centerMass.z - bi.position.z);
-
-        // Square distance with softening
-        double r2 = rij.lengthSquared();
-        double r = sqrt(r2 + (E * E));
-
-        // Calculate gravitational force: G * m1 * m2 / r^3
-        double f = (GRAVITY * bi.mass * curNode.totalMass) / (r * r * r);
-
-        // Apply force to body acceleration
-        bodies[bodyIndex].acceleration.x += (rij.x * f / bi.mass);
-        bodies[bodyIndex].acceleration.y += (rij.y * f / bi.mass);
-        bodies[bodyIndex].acceleration.z += (rij.z * f / bi.mass);
-
-        return;
-    }
-
-    // Recursively traverse child nodes
-    for (int i = 1; i <= 8; i++)
-    {
-        int childIndex = (nodeIndex * 8) + i;
-        if (childIndex < nNodes)
-        {
-            ComputeForce(globalNodes, sharedNodes, bodies, childIndex, bodyIndex,
-                               nNodes, nBodies, leafLimit, width / 2);
-        }
-    }
-}
-
 __global__ void ComputeForceKernel(
-    Node *nodes, Body *bodies, int nNodes, int nBodies, int leafLimit)
+    Node *nodes, Body *bodies, int *orderedIndices, bool useSFC,
+    int nNodes, int nBodies, int leafLimit)
 {
     // Memoria compartida para nodos frecuentemente accedidos
     __shared__ Node sharedNodes[NODE_CACHE_SIZE];
-    
+
     int i = blockIdx.x * blockDim.x + threadIdx.x;
-    
+
     // Cargar nodos cercanos a la raíz (accedidos por todos los hilos)
-    if (threadIdx.x < NODE_CACHE_SIZE) {
+    if (threadIdx.x < NODE_CACHE_SIZE)
+    {
         // Solo cargar nodos válidos
-        if (threadIdx.x < nNodes) {
+        if (threadIdx.x < nNodes)
+        {
             sharedNodes[threadIdx.x] = nodes[threadIdx.x];
         }
     }
-    
-    __syncthreads();  // Sincronizar antes de usar la memoria compartida
 
-    if (i >= nBodies) {
+    __syncthreads(); // Sincronizar antes de usar la memoria compartida
+
+    if (i >= nBodies)
+    {
         return;
     }
+
+    // Obtener el índice real del cuerpo si estamos usando SFC
+    int realBodyIndex = useSFC && orderedIndices != nullptr ? orderedIndices[i] : i;
 
     // Calcular ancho del dominio para criterio multipolo
     double width = max(
@@ -301,7 +80,7 @@ __global__ void ComputeForceKernel(
             fabs(nodes[0].botRightBack.y - nodes[0].topLeftFront.y),
             fabs(nodes[0].botRightBack.z - nodes[0].topLeftFront.z)));
 
-    Body &bi = bodies[i];
+    Body &bi = bodies[realBodyIndex];
 
     // Solo procesar cuerpos dinámicos
     if (bi.isDynamic)
@@ -309,86 +88,97 @@ __global__ void ComputeForceKernel(
         // Reiniciar aceleración
         bi.acceleration = Vector(0.0, 0.0, 0.0);
 
-        // Recorrer el árbol para calcular fuerzas
-        int nodeIndex = 0;
-        double nodeWidth = width;
-        
-        // Cola para recorrido iterativo del árbol
-        int stack[128];  // Tamaño máximo de pila para recorrido
+        // Recorrer el árbol para calcular fuerzas - Optimización iterativa
+        int stack[128]; // Tamaño máximo de pila para recorrido
         int stackSize = 0;
-        
-        stack[stackSize++] = 0;  // Iniciar con el nodo raíz
-        
+
+        stack[stackSize++] = 0; // Iniciar con el nodo raíz
+
         // Recorrido iterativo en lugar de recursivo
-        while (stackSize > 0) {
-            nodeIndex = stack[--stackSize];
-            
+        while (stackSize > 0)
+        {
+            int nodeIndex = stack[--stackSize];
+
             // Verificar si el nodo está en caché
             Node curNode;
-            if (nodeIndex < NODE_CACHE_SIZE) {
+            if (nodeIndex < NODE_CACHE_SIZE)
+            {
                 curNode = sharedNodes[nodeIndex];
-            } else {
+            }
+            else
+            {
                 curNode = nodes[nodeIndex];
             }
-            
+
             // Saltar nodos vacíos
-            if (curNode.start == -1 && curNode.end == -1) {
+            if (curNode.start == -1 && curNode.end == -1)
+            {
                 continue;
             }
-            
+
             // Evitar auto-interacción
-            if (curNode.isLeaf && curNode.start == i && curNode.end == i) {
+            if (curNode.isLeaf && curNode.start == i && curNode.end == i)
+            {
                 continue;
             }
-            
+
             // Calcular ancho del nodo actual
-            double curWidth = nodeWidth;
-            for (int level = 0; level < 30; level++) {
-                if ((nodeIndex >> (3 * level)) == 0) {
+            double curWidth = width;
+            for (int level = 0; level < 30; level++)
+            {
+                if ((nodeIndex >> (3 * level)) == 0)
+                {
                     curWidth = width / (1 << level);
                     break;
                 }
             }
-            
+
             // Verificar criterio de aproximación multipolar
             bool useMultipole = false;
-            if (!curNode.isLeaf && curNode.totalMass > 0.0) {
+            if (!curNode.isLeaf && curNode.totalMass > 0.0)
+            {
                 double dist = getDistance(bi.position, curNode.centerMass);
-                if (dist > 0.0 && curWidth / dist < THETA) {
+                if (dist > 0.0 && curWidth / dist < THETA)
+                {
                     useMultipole = true;
                 }
             }
-            
+
             // Aplicar fuerza si el nodo es hoja o podemos usar aproximación multipolar
-            if (curNode.isLeaf || useMultipole) {
+            if (curNode.isLeaf || useMultipole)
+            {
                 // Omitir si no se ha calculado el centro de masa o hay colisión
-                if (curNode.totalMass <= 0.0 || isCollide(bi, curNode.centerMass)) {
+                if (curNode.totalMass <= 0.0 || isCollide(bi, curNode.centerMass))
+                {
                     continue;
                 }
-                
+
                 // Calcular vector del cuerpo al centro de masa
                 Vector rij = Vector(
                     curNode.centerMass.x - bi.position.x,
                     curNode.centerMass.y - bi.position.y,
                     curNode.centerMass.z - bi.position.z);
-                
+
                 // Distancia al cuadrado con suavizado
                 double r2 = rij.lengthSquared();
                 double r = sqrt(r2 + (E * E));
-                
+
                 // Calcular fuerza gravitacional: G * m1 * m2 / r^3
                 double f = (GRAVITY * bi.mass * curNode.totalMass) / (r * r * r);
-                
+
                 // Aplicar fuerza a la aceleración del cuerpo
                 bi.acceleration.x += (rij.x * f / bi.mass);
                 bi.acceleration.y += (rij.y * f / bi.mass);
                 bi.acceleration.z += (rij.z * f / bi.mass);
-            } 
-            else {
-                // Añadir hijos a la pila para procesamiento
-                for (int c = 8; c >= 1; c--) {
+            }
+            else
+            {
+                // Añadir hijos a la pila para procesamiento (desde el 8 al 1)
+                for (int c = 8; c >= 1; c--)
+                {
                     int childIndex = (nodeIndex * 8) + c;
-                    if (childIndex < nNodes) {
+                    if (childIndex < nNodes)
+                    {
                         stack[stackSize++] = childIndex;
                     }
                 }
@@ -404,5 +194,102 @@ __global__ void ComputeForceKernel(
         bi.position.x += bi.velocity.x * DT;
         bi.position.y += bi.velocity.y * DT;
         bi.position.z += bi.velocity.z * DT;
+    }
+}
+
+/**
+ * @brief CUDA kernel to compute the bounding box for a set of bodies.
+ *
+ * This kernel calculates the bounding box for a given set of bodies, which
+ * are represented by nodes and bodies arrays. The bounding box is used to
+ * determine the spatial extent of the bodies in the simulation.
+ *
+ * @param nodes Pointer to the array of nodes representing the bounding box.
+ * @param bodies Pointer to the array of bodies in the simulation.
+ * @param orderedIndices Pointer to the array of ordered indices for the bodies.
+ * @param useSFC Boolean flag indicating whether to use Space-Filling Curve (SFC) for ordering.
+ * @param mutex Pointer to the mutex used for synchronization.
+ * @param nBodies The number of bodies in the simulation.
+ */
+__global__ void ComputeBoundingBoxKernel(
+    Node *nodes, Body *bodies, int *orderedIndices, bool useSFC,
+    int *mutex, int nBodies)
+{
+    // Shared memory para la reducción paralela
+    __shared__ double topLeftFrontX[BLOCK_SIZE];
+    __shared__ double topLeftFrontY[BLOCK_SIZE];
+    __shared__ double topLeftFrontZ[BLOCK_SIZE];
+    __shared__ double botRightBackX[BLOCK_SIZE];
+    __shared__ double botRightBackY[BLOCK_SIZE];
+    __shared__ double botRightBackZ[BLOCK_SIZE];
+
+    int tx = threadIdx.x;
+    int b = blockIdx.x * blockDim.x + tx;
+
+    // Inicializar con valores extremos
+    topLeftFrontX[tx] = INFINITY;
+    topLeftFrontY[tx] = INFINITY;
+    topLeftFrontZ[tx] = INFINITY;
+    botRightBackX[tx] = -INFINITY;
+    botRightBackY[tx] = -INFINITY;
+    botRightBackZ[tx] = -INFINITY;
+
+    __syncthreads();
+
+    // Cargar datos de cuerpos con o sin SFC
+    if (b < nBodies)
+    {
+        // Obtener el índice correcto dependiendo si usamos SFC o no
+        int bodyIndex = (useSFC && orderedIndices != nullptr) ? orderedIndices[b] : b;
+
+        Body body = bodies[bodyIndex];
+        topLeftFrontX[tx] = body.position.x;
+        topLeftFrontY[tx] = body.position.y;
+        topLeftFrontZ[tx] = body.position.z;
+
+        botRightBackX[tx] = body.position.x;
+        botRightBackY[tx] = body.position.y;
+        botRightBackZ[tx] = body.position.z;
+    }
+
+    // Reducción paralela para encontrar min/max valores
+    for (int s = blockDim.x / 2; s > 0; s >>= 1)
+    {
+        __syncthreads();
+        if (tx < s)
+        {
+            // Min reduction for top-left-front
+            topLeftFrontX[tx] = fmin(topLeftFrontX[tx], topLeftFrontX[tx + s]);
+            topLeftFrontY[tx] = fmin(topLeftFrontY[tx], topLeftFrontY[tx + s]);
+            topLeftFrontZ[tx] = fmin(topLeftFrontZ[tx], topLeftFrontZ[tx + s]);
+
+            // Max reduction for bottom-right-back
+            botRightBackX[tx] = fmax(botRightBackX[tx], botRightBackX[tx + s]);
+            botRightBackY[tx] = fmax(botRightBackY[tx], botRightBackY[tx + s]);
+            botRightBackZ[tx] = fmax(botRightBackZ[tx], botRightBackZ[tx + s]);
+        }
+    }
+
+    // Actualizar root node con mutex para evitar race conditions
+    if (tx == 0)
+    {
+        // Wait until mutex is available
+        while (atomicCAS(mutex, 0, 1) != 0)
+        {
+        }
+
+        // Update bounds with a margin for numerical stability
+        // Update minimum bounds (top-left-front corner)
+        nodes[0].topLeftFront.x = fmin(nodes[0].topLeftFront.x, topLeftFrontX[0] - 1.0e10);
+        nodes[0].topLeftFront.y = fmin(nodes[0].topLeftFront.y, topLeftFrontY[0] - 1.0e10);
+        nodes[0].topLeftFront.z = fmin(nodes[0].topLeftFront.z, topLeftFrontZ[0] - 1.0e10);
+
+        // Update maximum bounds (bottom-right-back corner)
+        nodes[0].botRightBack.x = fmax(nodes[0].botRightBack.x, botRightBackX[0] + 1.0e10);
+        nodes[0].botRightBack.y = fmax(nodes[0].botRightBack.y, botRightBackY[0] + 1.0e10);
+        nodes[0].botRightBack.z = fmax(nodes[0].botRightBack.z, botRightBackZ[0] + 1.0e10);
+
+        // Release mutex
+        atomicExch(mutex, 0);
     }
 }

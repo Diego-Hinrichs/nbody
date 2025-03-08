@@ -51,7 +51,7 @@ namespace sfc
          * @param minBound Minimum bounds of the domain
          * @param maxBound Maximum bounds of the domain
          */
-        void sortBodies(Body *d_bodies, const Vector &minBound, const Vector &maxBound);
+        int* sortBodies(Body *d_bodies, const Vector &minBound, const Vector &maxBound);
     };
 
 } // namespace sfc

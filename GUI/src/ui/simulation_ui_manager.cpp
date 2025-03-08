@@ -24,8 +24,8 @@ void SimulationUIManager::renderUI(GLFWwindow *window)
     renderSimulationControls();
     renderBodyCountSelector();
     ImGui::Separator();
-    static float particleSize = 3.0f; // Valor inicial
-    if (ImGui::SliderFloat("Tamaño de Partículas", &particleSize, 0.5f, 15.0f, "%.1f"))
+    static float particleSize = 5.0f; // Valor inicial
+    if (ImGui::SliderFloat("Tamaño de Partículas", &particleSize, 5.0f, 15.0f, "%.1f"))
     {
         // Cuando el valor cambia, actualizar el renderer
         renderer.setParticleSize(particleSize);
@@ -85,7 +85,7 @@ void SimulationUIManager::renderBodyCountSelector()
     ImGui::Separator();
     ImGui::Text("Bodies");
     int numBodies = simulationState_.numBodies.load();
-    if (ImGui::SliderInt("Number of Bodies", &numBodies, 1024, 64000, "%d"))
+    if (ImGui::SliderInt("Number of Bodies", &numBodies, 1024, 1024000, "%d"))
     {
         simulationState_.numBodies.store(numBodies);
         simulationState_.restart.store(true);
