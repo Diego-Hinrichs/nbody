@@ -14,12 +14,12 @@
 #include "../include/simulation/simulation_base.cuh"
 #include "../include/simulation/barnes_hut.cuh"
 #include "../include/simulation/sfc_barnes_hut.cuh"
-#include "../include/simulation/cpu_direct_sum.hpp"
-#include "../include/simulation/gpu_direct_sum.cuh"
-#include "../include/simulation/cpu_barnes_hut.hpp"
-#include "../include/ui/simulation_state.h"
-#include "../include/ui/opengl_renderer.h"
-#include "../include/ui/simulation_ui_manager.h"
+#include "../include/simulation/cpu_direct_sum.hpp" // CPU Direct Sum
+#include "../include/simulation/gpu_direct_sum.cuh" // GPU Direct Sum
+#include "../include/simulation/cpu_barnes_hut.hpp" // CPU Barnes-Hut
+#include "../include/ui/simulation_state.hpp"
+#include "../include/ui/opengl_renderer.hpp"
+#include "../include/ui/simulation_ui_manager.hpp"
 
 // NVIDIA GPU selection hint for Linux
 extern "C"
@@ -131,7 +131,32 @@ void simulationThread(SimulationState *state)
             );
             break;
 
-        case SimulationMethod::SFC_BARNES_HUT:
+        case SimulationMethod::CPU_BARNES_HUT:
+            simulation = new CPUBarnesHut(
+                currentNumBodies,
+                currentUseOpenMP,     // Use OpenMP
+                currentOpenMPThreads, // Thread count
+                currentDistribution,  // Distribution type
+                currentSeed           // Random seed
+            );
+            break;
+
+        case SimulationMethod::CPU_SFC_BARNES_HUT:
+            // For CPU_SFC_BARNES_HUT, we use CPUBarnesHut with SFC enabled
+            // Ideally, implement a dedicated CPUSFCBarnesHut class later
+            simulation = new CPUBarnesHut(
+                currentNumBodies,
+                currentUseOpenMP,     // Use OpenMP
+                currentOpenMPThreads, // Thread count
+                currentDistribution,  // Distribution type
+                currentSeed,          // Random seed
+                true,                 // Enable SFC
+                currentOrderingMode,  // Ordering mode
+                currentReorderFreq    // Reorder frequency
+            );
+            break;
+
+        case SimulationMethod::GPU_SFC_BARNES_HUT:
             simulation = new SFCBarnesHut(
                 currentNumBodies,
                 true,                // SFC is always enabled for this method
@@ -142,7 +167,7 @@ void simulationThread(SimulationState *state)
             );
             break;
 
-        case SimulationMethod::BARNES_HUT:
+        case SimulationMethod::GPU_BARNES_HUT:
         default:
             simulation = new BarnesHut(
                 currentNumBodies,
@@ -207,11 +232,12 @@ void simulationThread(SimulationState *state)
                 switch (currentMethod)
                 {
                 case SimulationMethod::CPU_DIRECT_SUM:
+                case SimulationMethod::CPU_BARNES_HUT:
                     shouldRestart = (currentUseOpenMP != state->useOpenMP.load() ||
                                      currentOpenMPThreads != state->openMPThreads.load());
                     break;
 
-                case SimulationMethod::BARNES_HUT:
+                case SimulationMethod::GPU_BARNES_HUT:
                     shouldRestart = (currentUseSFC != state->useSFC.load());
                     // Only check SFC parameters if SFC is enabled
                     if (currentUseSFC && state->useSFC.load())
@@ -222,7 +248,7 @@ void simulationThread(SimulationState *state)
                     }
                     break;
 
-                case SimulationMethod::SFC_BARNES_HUT:
+                case SimulationMethod::GPU_SFC_BARNES_HUT:
                     shouldRestart = (currentOrderingMode != state->sfcOrderingMode.load() ||
                                      currentReorderFreq != state->reorderFrequency.load());
                     break;
@@ -255,7 +281,6 @@ void simulationThread(SimulationState *state)
 
                 try
                 {
-                    // Create the appropriate simulation based on method
                     switch (currentMethod)
                     {
                     case SimulationMethod::CPU_DIRECT_SUM:
@@ -276,7 +301,30 @@ void simulationThread(SimulationState *state)
                         );
                         break;
 
-                    case SimulationMethod::SFC_BARNES_HUT:
+                    case SimulationMethod::CPU_BARNES_HUT:
+                        simulation = new CPUBarnesHut(
+                            currentNumBodies,
+                            currentUseOpenMP,     // Use OpenMP
+                            currentOpenMPThreads, // Thread count
+                            currentDistribution,  // Distribution type
+                            currentSeed           // Random seed
+                        );
+                        break;
+
+                    case SimulationMethod::CPU_SFC_BARNES_HUT:
+                        simulation = new CPUBarnesHut(
+                            currentNumBodies,
+                            currentUseOpenMP,     // Use OpenMP
+                            currentOpenMPThreads, // Thread count
+                            currentDistribution,  // Distribution type
+                            currentSeed,          // Random seed
+                            true,                 // Enable SFC
+                            currentOrderingMode,  // Ordering mode
+                            currentReorderFreq    // Reorder frequency
+                        );
+                        break;
+
+                    case SimulationMethod::GPU_SFC_BARNES_HUT:
                         simulation = new SFCBarnesHut(
                             currentNumBodies,
                             true,                // SFC is always enabled for this method
@@ -287,7 +335,7 @@ void simulationThread(SimulationState *state)
                         );
                         break;
 
-                    case SimulationMethod::BARNES_HUT:
+                    case SimulationMethod::GPU_BARNES_HUT:
                     default:
                         if (currentUseSFC)
                         {

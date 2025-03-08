@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "../common/types.cuh"
-#include "../ui/simulation_state.h"
+#include "../ui/simulation_state.hpp"
 
 class OpenGLRenderer
 {

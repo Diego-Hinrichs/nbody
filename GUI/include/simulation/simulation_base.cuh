@@ -4,7 +4,7 @@
 #include "../common/types.cuh"
 #include "../common/constants.cuh"
 #include "../common/error_handling.cuh"
-#include "../ui/simulation_state.h"
+#include "../ui/simulation_state.hpp"
 
 extern "C" void BuildOptimizedOctTree(
     Node *d_nodes, Body *d_bodies, Body *d_tempBodies,

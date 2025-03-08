@@ -1,10 +1,10 @@
-#include "../../include/ui/simulation_state.h"
+#include "../../include/ui/simulation_state.hpp"
 #include <omp.h>
 
 SimulationState::SimulationState() : running(true),
                                      restart(false),
                                      isPaused(false),
-                                     simulationMethod(SimulationMethod::BARNES_HUT), // Default to Barnes-Hut
+                                     simulationMethod(SimulationMethod::CPU_BARNES_HUT), // Default to Barnes-Hut
                                      useOpenMP(true),                                // Enable OpenMP by default
                                      openMPThreads(omp_get_max_threads()),           // Use all available cores by default
                                      useSFC(false),

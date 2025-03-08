@@ -1,4 +1,4 @@
-#include "../../include/ui/opengl_renderer.h"
+#include "../../include/ui/opengl_renderer.hpp"
 #include <iostream>
 #include <limits>
 #include <cmath>

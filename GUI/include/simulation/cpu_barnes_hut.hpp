@@ -24,6 +24,12 @@ private:
     bool useOpenMP; // Flag to enable/disable OpenMP parallelization
     int numThreads; // Number of OpenMP threads to use
 
+    // SFC-related parameters
+    bool useSFC;                  // Flag to enable/disable SFC
+    SFCOrderingMode orderingMode; // Ordering mode for SFC
+    int reorderFrequency;         // How often to reorder (in iterations)
+    int iterationCounter;         // Iterations since last reordering
+
     // Root of the octree
     std::unique_ptr<CPUOctreeNode> root;
 
@@ -67,12 +73,18 @@ public:
      * @param threads Number of OpenMP threads (0 for auto-detect)
      * @param dist Distribution type for initial body positions
      * @param seed Random seed for reproducibility
+     * @param enableSFC Flag to enable/disable Space-Filling Curve ordering
+     * @param sfcOrderingMode Ordering mode for SFC (particles or octants)
+     * @param reorderFreq How often to reorder (in iterations)
      */
     CPUBarnesHut(int numBodies,
                  bool useParallelization = true,
                  int threads = 0,
                  BodyDistribution dist = BodyDistribution::SOLAR_SYSTEM,
-                 unsigned int seed = static_cast<unsigned int>(time(nullptr)));
+                 unsigned int seed = static_cast<unsigned int>(time(nullptr)),
+                 bool enableSFC = false,
+                 SFCOrderingMode sfcOrderingMode = SFCOrderingMode::PARTICLES,
+                 int reorderFreq = 10);
 
     /**
      * @brief Destructor

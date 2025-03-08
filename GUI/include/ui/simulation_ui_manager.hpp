@@ -12,8 +12,8 @@
 // Project headers
 #include "../common/types.cuh"
 #include "../common/constants.cuh"
-#include "simulation_state.h"
-#include "opengl_renderer.h" // Incluir el header del renderer
+#include "simulation_state.hpp"
+#include "opengl_renderer.hpp" // Incluir el header del renderer
 
 class SimulationUIManager
 {

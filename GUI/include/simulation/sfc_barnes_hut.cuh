@@ -3,7 +3,7 @@
 
 #include "../../include/simulation/barnes_hut.cuh"
 #include "../sfc/body_sorter.cuh"
-#include "../ui/simulation_state.h"
+#include "../ui/simulation_state.hpp"
 
 /**
  * @brief Space-Filling Curve enhanced Barnes-Hut simulation
