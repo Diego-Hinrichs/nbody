@@ -5,9 +5,14 @@
 #include "../common/constants.cuh"
 #include <cstdint>
 
+__global__ void ComputeMortonCodesKernel(Body *bodies, uint64_t *mortonCodes, int *indices,
+                                         int nBodies, Vector minBound, Vector maxBound);
+
+__global__ void ComputeOctantMortonCodesKernel(Node *nodes, uint64_t *mortonCodes, int *indices,
+                                               int nNodes, Vector minBound, Vector maxBound);
+
 namespace sfc
 {
-
     /**
      * @brief Expands a 21-bit integer to 63 bits by inserting 2 zeros after each bit
      * @param v Value to expand
@@ -15,11 +20,11 @@ namespace sfc
      */
     __host__ __device__ inline uint64_t expandBits(uint64_t v)
     {
-        v = (v * 0x0000000100000001ULL) & 0xFFFF00000000FFFFULL;
-        v = (v * 0x0000000000010001ULL) & 0x00FF0000FF0000FFULL;
-        v = (v * 0x0000000000000101ULL) & 0xF00F00F00F00F00FULL;
-        v = (v * 0x0000000000000011ULL) & 0x30C30C30C30C30C3ULL;
-        v = (v * 0x0000000000000005ULL) & 0x9249249249249249ULL;
+        v = (v | v << 32) & 0x1f00000000ffff;
+        v = (v | v << 16) & 0x1f0000ff0000ff;
+        v = (v | v << 8) & 0x100f00f00f00f00f;
+        v = (v | v << 4) & 0x10c30c30c30c30c3;
+        v = (v | v << 2) & 0x1249249249249249;
         return v;
     }
 
@@ -52,6 +57,7 @@ namespace sfc
         const Vector &maxBound,
         int bits = MORTON_BITS)
     {
+        double maxCoord = (1ULL << bits) - 1;
 
         // Normalize coordinates to [0,1]
         double normalizedX = (pos.x - minBound.x) / (maxBound.x - minBound.x);
@@ -64,7 +70,6 @@ namespace sfc
         normalizedZ = fmin(fmax(normalizedZ, 0.0), 1.0);
 
         // Scale to [0, 2^bits-1]
-        uint64_t maxCoord = (1ULL << bits) - 1;
         uint64_t x = uint64_t(normalizedX * maxCoord);
         uint64_t y = uint64_t(normalizedY * maxCoord);
         uint64_t z = uint64_t(normalizedZ * maxCoord);

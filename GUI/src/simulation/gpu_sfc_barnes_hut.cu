@@ -1,27 +1,6 @@
 
 #include "../../include/simulation/gpu_sfc_barnes_hut.cuh"
 
-__global__ void ComputeOctantMortonCodesKernel(Node *nodes, uint64_t *mortonCodes, int *indices,
-                                               int nNodes, Vector minBound, Vector maxBound)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < nNodes)
-    {
-        // Skip empty nodes
-        if (nodes[idx].start == -1 && nodes[idx].end == -1)
-        {
-            mortonCodes[idx] = 0; // Assign lowest priority to empty nodes
-        }
-        else
-        {
-            // Use node center for Morton code calculation
-            Vector center = nodes[idx].getCenter();
-            mortonCodes[idx] = sfc::positionToMorton(center, minBound, maxBound);
-        }
-        indices[idx] = idx; // Initialize with sequential indices
-    }
-}
-
 SFCBarnesHut::SFCBarnesHut(int numBodies, bool useSpaceFillingCurve,
                            SFCOrderingMode initialOrderingMode, int initialReorderFreq,
                            BodyDistribution dist, unsigned int seed)

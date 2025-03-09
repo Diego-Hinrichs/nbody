@@ -9,14 +9,10 @@
 #include "../common/types.cuh"
 #include "../common/constants.cuh"
 #include "../common/error_handling.cuh"
-// Incluir libmorton en lugar de nuestro morton.cuh
-#include "../../external/libmorton/include/libmorton/morton.h"
+#include "morton.cuh"
+#include "hilbert.cuh"
 
-// Forward declarations de kernels
-__global__ void ComputeMortonCodesKernel(Body *bodies, uint64_t *mortonCodes, int *indices,
-                                         int nBodies, Vector minBound, Vector maxBound);
-
-                                         namespace sfc
+namespace sfc
 {
     /**
      * @brief Clase para ordenar cuerpos según sus códigos Morton
