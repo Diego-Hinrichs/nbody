@@ -9,34 +9,30 @@
 #include "../common/types.cuh"
 #include "../common/constants.cuh"
 #include "../common/error_handling.cuh"
-#include "morton.cuh"
+// Incluir libmorton en lugar de nuestro morton.cuh
+#include "../../external/libmorton/include/libmorton/morton.h"
 
-// Forward declarations of kernel functions
+// Forward declarations de kernels
 __global__ void ComputeMortonCodesKernel(Body *bodies, uint64_t *mortonCodes, int *indices,
                                          int nBodies, Vector minBound, Vector maxBound);
-__global__ void ReorderBodiesKernel(Body *bodies, Body *sortedBodies, int *indices, int nBodies);
 
-namespace sfc
+                                         namespace sfc
 {
-
     /**
-     * @brief Class for sorting bodies by their Morton codes
-     *
-     * This class handles the sorting of bodies according to their Morton codes,
-     * which improves memory coherence when traversing the octree.
+     * @brief Clase para ordenar cuerpos según sus códigos Morton
      */
     class BodySorter
     {
     private:
-        int nBodies;             // Number of bodies
-        uint64_t *d_mortonCodes; // Device array for Morton codes
-        int *d_indices;          // Device array for indices
-        Body *d_tempBodies;      // Temporary buffer for sorted bodies
+        int nBodies;
+        uint64_t *d_mortonCodes;
+        int *d_indices;
+        Body *d_tempBodies;
 
     public:
         /**
          * @brief Constructor
-         * @param numBodies Number of bodies to sort
+         * @param numBodies Número de cuerpos a ordenar
          */
         BodySorter(int numBodies);
 
@@ -46,12 +42,13 @@ namespace sfc
         ~BodySorter();
 
         /**
-         * @brief Sort bodies by their Morton codes
-         * @param d_bodies Device array of bodies to sort
-         * @param minBound Minimum bounds of the domain
-         * @param maxBound Maximum bounds of the domain
+         * @brief Ordenar cuerpos según sus códigos Morton
+         * @param d_bodies Array de cuerpos en dispositivo
+         * @param minBound Límite mínimo del dominio
+         * @param maxBound Límite máximo del dominio
+         * @return Puntero al array de índices ordenados
          */
-        int* sortBodies(Body *d_bodies, const Vector &minBound, const Vector &maxBound);
+        int *sortBodies(Body *d_bodies, const Vector &minBound, const Vector &maxBound);
     };
 
 } // namespace sfc

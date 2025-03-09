@@ -5,6 +5,9 @@
 #include "../common/constants.cuh"
 #include "../common/error_handling.cuh"
 #include "../ui/simulation_state.hpp"
+#include <functional>
+#include <vector>
+#include <memory>
 
 extern "C" void BuildOptimizedOctTree(
     Node *d_nodes, Body *d_bodies, Body *d_tempBodies,
@@ -54,6 +57,9 @@ protected:
     // Flag to indicate whether the simulation is initialized
     bool isInitialized;
 
+    // Typedef for body initialization functions
+    using InitFunction = std::function<void(Body *, int, Vector, unsigned int)>;
+
     /**
      * @brief Initialize bodies with specified distribution and seed
      * @param dist Distribution type to use
@@ -62,34 +68,55 @@ protected:
     virtual void initBodies(BodyDistribution dist, unsigned int seed);
 
     /**
+     * @brief Helper function to distribute bodies using a specific initialization function
+     * @param initFunc Function to initialize a specific body distribution
+     */
+    void distributeWithFunction(InitFunction initFunc);
+
+    /**
      * @brief Initialize bodies with solar system like distribution
+     * @param bodies Array of bodies to initialize
+     * @param numBodies Number of bodies in the array
+     * @param centerPos Center position of the system
      * @param seed Random seed for reproducibility
      */
-    void initSolarSystem(unsigned int seed);
+    static void initSolarSystem(Body *bodies, int numBodies, Vector centerPos, unsigned int seed);
 
     /**
      * @brief Initialize bodies with galaxy-like spiral distribution
+     * @param bodies Array of bodies to initialize
+     * @param numBodies Number of bodies in the array
+     * @param centerPos Center position of the system
      * @param seed Random seed for reproducibility
      */
-    void initGalaxy(unsigned int seed);
+    static void initGalaxy(Body *bodies, int numBodies, Vector centerPos, unsigned int seed);
 
     /**
      * @brief Initialize bodies with binary star system distribution
+     * @param bodies Array of bodies to initialize
+     * @param numBodies Number of bodies in the array
+     * @param centerPos Center position of the system
      * @param seed Random seed for reproducibility
      */
-    void initBinarySystem(unsigned int seed);
+    static void initBinarySystem(Body *bodies, int numBodies, Vector centerPos, unsigned int seed);
 
     /**
      * @brief Initialize bodies with uniform sphere distribution
+     * @param bodies Array of bodies to initialize
+     * @param numBodies Number of bodies in the array
+     * @param centerPos Center position of the system
      * @param seed Random seed for reproducibility
      */
-    void initUniformSphere(unsigned int seed);
+    static void initUniformSphere(Body *bodies, int numBodies, Vector centerPos, unsigned int seed);
 
     /**
      * @brief Initialize bodies with random clusters
+     * @param bodies Array of bodies to initialize
+     * @param numBodies Number of bodies in the array
+     * @param centerPos Center position of the system
      * @param seed Random seed for reproducibility
      */
-    void initRandomClusters(unsigned int seed);
+    static void initRandomClusters(Body *bodies, int numBodies, Vector centerPos, unsigned int seed);
 
     /**
      * @brief Ensure the simulation is initialized before operations

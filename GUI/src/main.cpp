@@ -2,6 +2,8 @@
 #include <thread>
 #include <chrono>
 #include <stdexcept>
+#include <memory>
+#include <functional>
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -58,7 +60,7 @@ SimulationConfig parseArgs(int argc, char **argv)
     return config;
 }
 
-// Global simulation state and renderer
+// Global simulation state for callbacks
 SimulationState *g_simulationState = nullptr;
 
 // GLFW error callback
@@ -95,12 +97,131 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
     }
 }
 
+// Factory function to create the appropriate simulation based on method
+std::unique_ptr<SimulationBase> createSimulation(
+    SimulationMethod method,
+    int numBodies,
+    bool useSFC,
+    SFCOrderingMode orderingMode,
+    int reorderFreq,
+    BodyDistribution distribution,
+    unsigned int seed,
+    bool useOpenMP,
+    int numThreads)
+{
+    std::unique_ptr<SimulationBase> simulation;
+
+    switch (method)
+    {
+    case SimulationMethod::CPU_DIRECT_SUM:
+        simulation = std::make_unique<CPUDirectSum>(
+            numBodies,
+            useOpenMP,    // Use OpenMP
+            numThreads,   // Thread count
+            distribution, // Distribution type
+            seed          // Random seed
+        );
+        break;
+
+    case SimulationMethod::CPU_SFC_DIRECT_SUM:
+        simulation = std::make_unique<SFCCPUDirectSum>(
+            numBodies,
+            useOpenMP,    // Use OpenMP
+            numThreads,   // Thread count
+            true,         // Enable SFC
+            reorderFreq,  // Reorder frequency
+            distribution, // Distribution type
+            seed          // Random seed
+        );
+        break;
+
+    case SimulationMethod::GPU_DIRECT_SUM:
+        simulation = std::make_unique<GPUDirectSum>(
+            numBodies,
+            distribution, // Distribution type
+            seed          // Random seed
+        );
+        break;
+
+    case SimulationMethod::GPU_SFC_DIRECT_SUM:
+        simulation = std::make_unique<SFCGPUDirectSum>(
+            numBodies,
+            true,         // SFC is always enabled for this method
+            reorderFreq,  // Reorder frequency
+            distribution, // Distribution type
+            seed          // Random seed
+        );
+        break;
+
+    case SimulationMethod::CPU_BARNES_HUT:
+        simulation = std::make_unique<CPUBarnesHut>(
+            numBodies,
+            useOpenMP,    // Use OpenMP
+            numThreads,   // Thread count
+            distribution, // Distribution type
+            seed          // Random seed
+        );
+        break;
+
+    case SimulationMethod::CPU_SFC_BARNES_HUT:
+        simulation = std::make_unique<CPUBarnesHut>(
+            numBodies,
+            useOpenMP,    // Use OpenMP
+            numThreads,   // Thread count
+            distribution, // Distribution type
+            seed,         // Random seed
+            true,         // Enable SFC
+            orderingMode, // Ordering mode
+            reorderFreq   // Reorder frequency
+        );
+        break;
+
+    case SimulationMethod::GPU_SFC_BARNES_HUT:
+        simulation = std::make_unique<SFCBarnesHut>(
+            numBodies,
+            true,         // SFC is always enabled for this method
+            orderingMode, // Ordering mode
+            reorderFreq,  // Reorder frequency
+            distribution, // Distribution type
+            seed          // Random seed
+        );
+        break;
+
+    case SimulationMethod::GPU_BARNES_HUT:
+    default:
+        if (useSFC)
+        {
+            // Use SFCBarnesHut if SFC is enabled
+            simulation = std::make_unique<SFCBarnesHut>(
+                numBodies,
+                true,         // Enable SFC
+                orderingMode, // Ordering mode
+                reorderFreq,  // Reorder frequency
+                distribution, // Distribution type
+                seed          // Random seed
+            );
+        }
+        else
+        {
+            // Use regular Barnes-Hut
+            simulation = std::make_unique<BarnesHut>(
+                numBodies,
+                distribution, // Distribution type
+                seed          // Random seed
+            );
+        }
+        break;
+    }
+
+    return simulation;
+}
+
 // Simulation thread function
 void simulationThread(SimulationState *state)
 {
     try
     {
-        SimulationBase *simulation = nullptr;
+        std::unique_ptr<SimulationBase> simulation = nullptr;
 
         // Current simulation parameters
         int currentNumBodies = state->numBodies.load();
@@ -113,98 +234,22 @@ void simulationThread(SimulationState *state)
         bool currentUseOpenMP = state->useOpenMP.load();
         int currentOpenMPThreads = state->openMPThreads.load();
 
-        // Configuración para reducir transferencias CPU-GPU
-        const int VISUALIZATION_FREQUENCY = 24; // Actualizar visualización cada 24 cuadros
+        // Configuration to reduce CPU-GPU transfers
+        const int VISUALIZATION_FREQUENCY = 24; // Update visualization every 24 frames
         int frameCounter = 0;
 
-        // Create initial simulation based on selected method
-        switch (currentMethod)
-        {
-        case SimulationMethod::CPU_DIRECT_SUM:
-            simulation = new CPUDirectSum(
-                currentNumBodies,
-                currentUseOpenMP,     // Use OpenMP
-                currentOpenMPThreads, // Thread count
-                currentDistribution,  // Distribution type
-                currentSeed           // Random seed
-            );
-            break;
+        // Create initial simulation
+        simulation = createSimulation(
+            currentMethod,
+            currentNumBodies,
+            currentUseSFC,
+            currentOrderingMode,
+            currentReorderFreq,
+            currentDistribution,
+            currentSeed,
+            currentUseOpenMP,
+            currentOpenMPThreads);
 
-        case SimulationMethod::CPU_SFC_DIRECT_SUM:
-            simulation = new SFCCPUDirectSum(
-                currentNumBodies,
-                currentUseOpenMP,     // Use OpenMP
-                currentOpenMPThreads, // Thread count
-                true,                 // Enable SFC
-                currentReorderFreq,   // Reorder frequency
-                currentDistribution,  // Distribution type
-                currentSeed           // Random seed
-            );
-            break;
-
-        case SimulationMethod::GPU_DIRECT_SUM:
-            simulation = new GPUDirectSum(
-                currentNumBodies,
-                currentDistribution, // Distribution type
-                currentSeed          // Random seed
-            );
-            break;
-
-        case SimulationMethod::GPU_SFC_DIRECT_SUM:
-            simulation = new SFCGPUDirectSum(
-                currentNumBodies,
-                true,                // SFC is always enabled for this method
-                currentReorderFreq,  // Reorder frequency
-                currentDistribution, // Distribution type
-                currentSeed          // Random seed
-            );
-            break;
-
-        case SimulationMethod::CPU_BARNES_HUT:
-            simulation = new CPUBarnesHut(
-                currentNumBodies,
-                currentUseOpenMP,     // Use OpenMP
-                currentOpenMPThreads, // Thread count
-                currentDistribution,  // Distribution type
-                currentSeed           // Random seed
-            );
-            break;
-
-        case SimulationMethod::CPU_SFC_BARNES_HUT:
-            // For CPU_SFC_BARNES_HUT, we use CPUBarnesHut with SFC enabled
-            // Ideally, implement a dedicated CPUSFCBarnesHut class later
-            simulation = new CPUBarnesHut(
-                currentNumBodies,
-                currentUseOpenMP,     // Use OpenMP
-                currentOpenMPThreads, // Thread count
-                currentDistribution,  // Distribution type
-                currentSeed,          // Random seed
-                true,                 // Enable SFC
-                currentOrderingMode,  // Ordering mode
-                currentReorderFreq    // Reorder frequency
-            );
-            break;
-
-        case SimulationMethod::GPU_SFC_BARNES_HUT:
-            simulation = new SFCBarnesHut(
-                currentNumBodies,
-                true,                // SFC is always enabled for this method
-                currentOrderingMode, // Ordering mode
-                currentReorderFreq,  // Reorder frequency
-                currentDistribution, // Distribution type
-                currentSeed          // Random seed
-            );
-            break;
-
-        case SimulationMethod::GPU_BARNES_HUT:
-        default:
-            simulation = new BarnesHut(
-                currentNumBodies,
-                currentDistribution, // Distribution type
-                currentSeed          // Random seed
-            );
-            break;
-        }
         if (!simulation)
         {
             logMessage("Failed to create simulation", true);
@@ -289,112 +334,19 @@ void simulationThread(SimulationState *state)
                 state->seedWasChanged = false;
 
                 // Recreate the simulation
-                delete simulation;
-                simulation = nullptr; // Avoid dangling pointer
-
                 try
                 {
-                    switch (currentMethod)
-                    {
-                    case SimulationMethod::CPU_DIRECT_SUM:
-                        simulation = new CPUDirectSum(
-                            currentNumBodies,
-                            currentUseOpenMP,     // Use OpenMP
-                            currentOpenMPThreads, // Thread count
-                            currentDistribution,  // Distribution type
-                            currentSeed           // Random seed
-                        );
-                        break;
+                    simulation = createSimulation(
+                        currentMethod,
+                        currentNumBodies,
+                        currentUseSFC,
+                        currentOrderingMode,
+                        currentReorderFreq,
+                        currentDistribution,
+                        currentSeed,
+                        currentUseOpenMP,
+                        currentOpenMPThreads);
 
-                    case SimulationMethod::CPU_SFC_DIRECT_SUM:
-                        simulation = new SFCCPUDirectSum(
-                            currentNumBodies,
-                            currentUseOpenMP,     // Use OpenMP
-                            currentOpenMPThreads, // Thread count
-                            true,                 // Enable SFC
-                            currentReorderFreq,   // Reorder frequency
-                            currentDistribution,  // Distribution type
-                            currentSeed           // Random seed
-                        );
-                        break;
-
-                    case SimulationMethod::GPU_DIRECT_SUM:
-                        simulation = new GPUDirectSum(
-                            currentNumBodies,
-                            currentDistribution, // Distribution type
-                            currentSeed          // Random seed
-                        );
-                        break;
-
-                    case SimulationMethod::GPU_SFC_DIRECT_SUM:
-                        simulation = new SFCGPUDirectSum(
-                            currentNumBodies,
-                            true,                // SFC is always enabled for this method
-                            currentReorderFreq,  // Reorder frequency
-                            currentDistribution, // Distribution type
-                            currentSeed          // Random seed
-                        );
-                        break;
-
-                    case SimulationMethod::CPU_BARNES_HUT:
-                        simulation = new CPUBarnesHut(
-                            currentNumBodies,
-                            currentUseOpenMP,     // Use OpenMP
-                            currentOpenMPThreads, // Thread count
-                            currentDistribution,  // Distribution type
-                            currentSeed           // Random seed
-                        );
-                        break;
-
-                    case SimulationMethod::CPU_SFC_BARNES_HUT:
-                        simulation = new CPUBarnesHut(
-                            currentNumBodies,
-                            currentUseOpenMP,     // Use OpenMP
-                            currentOpenMPThreads, // Thread count
-                            currentDistribution,  // Distribution type
-                            currentSeed,          // Random seed
-                            true,                 // Enable SFC
-                            currentOrderingMode,  // Ordering mode
-                            currentReorderFreq    // Reorder frequency
-                        );
-                        break;
-
-                    case SimulationMethod::GPU_SFC_BARNES_HUT:
-                        simulation = new SFCBarnesHut(
-                            currentNumBodies,
-                            true,                // SFC is always enabled for this method
-                            currentOrderingMode, // Ordering mode
-                            currentReorderFreq,  // Reorder frequency
-                            currentDistribution, // Distribution type
-                            currentSeed          // Random seed
-                        );
-                        break;
-
-                    case SimulationMethod::GPU_BARNES_HUT:
-                    default:
-                        if (currentUseSFC)
-                        {
-                            // Use SFCBarnesHut if SFC is enabled
-                            simulation = new SFCBarnesHut(
-                                currentNumBodies,
-                                true,                // Enable SFC
-                                currentOrderingMode, // Ordering mode
-                                currentReorderFreq,  // Reorder frequency
-                                currentDistribution, // Distribution type
-                                currentSeed          // Random seed
-                            );
-                        }
-                        else
-                        {
-                            // Use regular Barnes-Hut
-                            simulation = new BarnesHut(
-                                currentNumBodies,
-                                currentDistribution, // Distribution type
-                                currentSeed          // Random seed
-                            );
-                        }
-                        break;
-                    }
                     if (!simulation)
                     {
                         logMessage("Failed to recreate simulation", true);
@@ -420,15 +372,15 @@ void simulationThread(SimulationState *state)
             // Update simulation
             simulation->update();
 
-            // Incrementar contador de cuadros
+            // Increment frame counter
             frameCounter++;
 
-            // Leer cuerpos desde el dispositivo solo cuando sea necesario
+            // Read bodies from device only when necessary
             if (frameCounter >= VISUALIZATION_FREQUENCY)
             {
                 frameCounter = 0;
 
-                // Copiar datos desde GPU a CPU
+                // Copy data from GPU to CPU
                 simulation->copyBodiesFromDevice();
 
                 // Update shared bodies for rendering
@@ -470,12 +422,136 @@ void simulationThread(SimulationState *state)
             }
         }
 
-        // Cleanup
-        delete simulation;
+        // Simulation will be cleaned up by unique_ptr destructor
     }
     catch (const std::exception &e)
     {
         logMessage("Fatal error in simulation thread: " + std::string(e.what()), true);
+    }
+}
+
+// Initialize GLFW and create window
+GLFWwindow *initializeGLFW(const SimulationConfig &config)
+{
+    glfwSetErrorCallback(glfw_error_callback);
+    if (!glfwInit())
+    {
+        logMessage("Failed to initialize GLFW", true);
+        return nullptr;
+    }
+
+    // OpenGL and window hints
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+    glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_NATIVE_CONTEXT_API);
+
+    // Get primary monitor and video mode
+    GLFWmonitor *monitor = glfwGetPrimaryMonitor();
+    const GLFWvidmode *mode = glfwGetVideoMode(monitor);
+
+    // Create window
+    GLFWwindow *window = nullptr;
+    if (config.fullscreen)
+    {
+        window = glfwCreateWindow(
+            mode->width,
+            mode->height,
+            "N-Body Simulation",
+            monitor, // Fullscreen mode
+            nullptr);
+    }
+    else
+    {
+        window = glfwCreateWindow(
+            1280,
+            720,
+            "N-Body Simulation",
+            nullptr, // Windowed mode
+            nullptr);
+    }
+
+    if (!window)
+    {
+        logMessage("Failed to create GLFW window", true);
+        glfwTerminate();
+        return nullptr;
+    }
+
+    // Make the window's context current
+    glfwMakeContextCurrent(window);
+    glfwSwapInterval(1); // Enable vsync
+
+    glfwSetKeyCallback(window, key_callback);
+
+    return window;
+}
+
+// Initialize GLAD for OpenGL function loading
+bool initializeGLAD()
+{
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
+    {
+        logMessage("Failed to initialize GLAD", true);
+        return false;
+    }
+
+    logMessage("OpenGL Version: " + std::string((char *)glGetString(GL_VERSION)));
+    logMessage("GLSL Version: " + std::string((char *)glGetString(GL_SHADING_LANGUAGE_VERSION)));
+    logMessage("Renderer: " + std::string((char *)glGetString(GL_RENDERER)));
+
+    return true;
+}
+
+// Setup ImGui context and style
+void setupImGui(GLFWwindow *window)
+{
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO &io = ImGui::GetIO();
+    (void)io;
+
+    // Setup Platform/Renderer bindings
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL3_Init("#version 330");
+
+    // Setup Dear ImGui style
+    ImGui::StyleColorsDark();
+}
+
+// Main render loop
+void renderLoop(GLFWwindow *window, SimulationState &simulationState, OpenGLRenderer &renderer, SimulationUIManager &uiManager)
+{
+    while (!glfwWindowShouldClose(window) && simulationState.running.load())
+    {
+        // Poll and handle events
+        glfwPollEvents();
+
+        // Render bodies if available
+        {
+            std::lock_guard<std::mutex> lock(simulationState.mtx);
+            if (simulationState.sharedBodies && simulationState.currentBodiesCount > 0)
+            {
+                renderer.updateBodies(
+                    simulationState.sharedBodies,
+                    simulationState.currentBodiesCount);
+            }
+        }
+
+        // Get window dimensions
+        int width, height;
+        glfwGetFramebufferSize(window, &width, &height);
+        float aspectRatio = static_cast<float>(width) / static_cast<float>(height);
+
+        // Render bodies
+        renderer.render(aspectRatio);
+
+        // Render UI
+        uiManager.renderUI(window);
+
+        // Swap front and back buffers
+        glfwSwapBuffers(window);
     }
 }
 
@@ -488,90 +564,23 @@ int main(int argc, char **argv)
         // Parse command-line arguments
         SimulationConfig config = parseArgs(argc, argv);
 
-        // Initialize GLFW
-        glfwSetErrorCallback(glfw_error_callback);
-        if (!glfwInit())
-        {
-            logMessage("Failed to initialize GLFW", true);
-            return -1;
-        }
-
-        // OpenGL and window hints
-        // En el método de inicialización de GLFW
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
-        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-        glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-        glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_NATIVE_CONTEXT_API);
-
-        // Get primary monitor and video mode
-        GLFWmonitor *monitor = glfwGetPrimaryMonitor();
-        const GLFWvidmode *mode = glfwGetVideoMode(monitor);
-
-        // Create window (windowed mode for easier debugging)
-        GLFWwindow *window = nullptr;
-        if (config.fullscreen)
-        {
-            window = glfwCreateWindow(
-                mode->width,
-                mode->height,
-                "N-Body Simulation",
-                monitor, // Fullscreen mode
-                nullptr);
-        }
-        else
-        {
-            window = glfwCreateWindow(
-                1280,
-                720,
-                "N-Body Simulation",
-                nullptr, // Windowed mode
-                nullptr);
-        }
-
+        // Initialize GLFW and create window
+        GLFWwindow *window = initializeGLFW(config);
         if (!window)
-        {
-            logMessage("Failed to create GLFW window", true);
-            glfwTerminate();
             return -1;
-        }
 
-        // Make the window's context current
-        glfwMakeContextCurrent(window);
-        glfwSwapInterval(1); // Enable vsync
-
-        glfwSetKeyCallback(window, key_callback);
-
-        // Load OpenGL functions with GLAD
-        if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
-        {
-            logMessage("Failed to initialize GLAD", true);
+        // Initialize GLAD
+        if (!initializeGLAD())
             return -1;
-        }
-        // Extensive OpenGL context and capability checking
-        std::cout << "OpenGL Initialization Details:" << std::endl;
-        logMessage("OpenGL Version: " + std::string((char *)glGetString(GL_VERSION)));
-        logMessage("GLSL Version: " + std::string((char *)glGetString(GL_SHADING_LANGUAGE_VERSION)));
-        logMessage("Renderer: " + std::string((char *)glGetString(GL_RENDERER)));
 
-        // OpenGL configuration
+        // Configure OpenGL
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_PROGRAM_POINT_SIZE);
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-        // Setup Dear ImGui context
-        IMGUI_CHECKVERSION();
-        ImGui::CreateContext();
-        ImGuiIO &io = ImGui::GetIO();
-        (void)io;
-
-        // Setup Platform/Renderer bindings
-        ImGui_ImplGlfw_InitForOpenGL(window, true);
-        ImGui_ImplOpenGL3_Init("#version 330");
-
-        // Setup Dear ImGui style
-        ImGui::StyleColorsDark();
+        // Setup ImGui
+        setupImGui(window);
 
         // Create simulation state
         SimulationState simulationState;
@@ -592,36 +601,7 @@ int main(int argc, char **argv)
         std::thread simThread(simulationThread, &simulationState);
 
         // Main render loop
-        while (!glfwWindowShouldClose(window) && simulationState.running.load())
-        {
-            // Poll and handle events
-            glfwPollEvents();
-
-            // Render bodies if available
-            {
-                std::lock_guard<std::mutex> lock(simulationState.mtx);
-                if (simulationState.sharedBodies && simulationState.currentBodiesCount > 0)
-                {
-                    renderer.updateBodies(
-                        simulationState.sharedBodies,
-                        simulationState.currentBodiesCount);
-                }
-            }
-
-            // Get window dimensions
-            int width, height;
-            glfwGetFramebufferSize(window, &width, &height);
-            float aspectRatio = static_cast<float>(width) / static_cast<float>(height);
-
-            // Render bodies
-            renderer.render(aspectRatio);
-
-            // Render UI
-            uiManager.renderUI(window);
-
-            // Swap front and back buffers
-            glfwSwapBuffers(window);
-        }
+        renderLoop(window, simulationState, renderer, uiManager);
 
         // Cleanup
         simulationState.running.store(false);
