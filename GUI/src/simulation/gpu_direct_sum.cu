@@ -12,55 +12,101 @@
  */
 __global__ void DirectSumForceKernel(Body *bodies, int nBodies)
 {
-    // Calculate global thread index
+    // Reducir el tamaño del array de memoria compartida
+    // Usar un valor más pequeño que BLOCK_SIZE
+    __shared__ Vector sharedPos[256];  // Reducido de BLOCK_SIZE
+    __shared__ double sharedMass[256]; // Reducido de BLOCK_SIZE
+    
     int i = blockIdx.x * blockDim.x + threadIdx.x;
-
-    // Check if this thread should process a body
-    if (i >= nBodies || !bodies[i].isDynamic)
-        return;
-
-    // Reset acceleration
-    bodies[i].acceleration = Vector(0.0, 0.0, 0.0);
-
-    // Cache this body's data to registers for faster access
-    Vector myPos = bodies[i].position;
-    double myMass = bodies[i].mass;
-
-    // Compute force from all other bodies
-    for (int j = 0; j < nBodies; j++)
-    {
-        if (i == j)
-            continue; // Skip self-interaction
-
-        // Vector from body i to body j
-        Vector r = bodies[j].position - myPos;
-
-        // Distance calculation with softening
-        double distSqr = r.lengthSquared() + (E * E);
-        double dist = sqrt(distSqr);
-
-        // Skip if bodies are too close (collision)
-        if (dist < COLLISION_TH)
-            continue;
-
-        // Gravitational force: G * m1 * m2 / r^3 * r_vector
-        double forceMag = GRAVITY * myMass * bodies[j].mass / (distSqr * dist);
-
-        // Update acceleration (F = ma, so a = F/m)
-        bodies[i].acceleration.x += (r.x * forceMag) / myMass;
-        bodies[i].acceleration.y += (r.y * forceMag) / myMass;
-        bodies[i].acceleration.z += (r.z * forceMag) / myMass;
+    int tx = threadIdx.x;
+    
+    // Cargar datos solo si el índice es válido
+    Vector myPos = Vector(0, 0, 0);
+    Vector myVel = Vector(0, 0, 0);
+    Vector myAcc = Vector(0, 0, 0);
+    double myMass = 0.0;
+    bool isDynamic = false;
+    
+    if (i < nBodies) {
+        myPos = bodies[i].position;
+        myVel = bodies[i].velocity;
+        myMass = bodies[i].mass;
+        isDynamic = bodies[i].isDynamic;
     }
-
-    // Update velocity (Euler integration)
-    bodies[i].velocity.x += bodies[i].acceleration.x * DT;
-    bodies[i].velocity.y += bodies[i].acceleration.y * DT;
-    bodies[i].velocity.z += bodies[i].acceleration.z * DT;
-
-    // Update position
-    bodies[i].position.x += bodies[i].velocity.x * DT;
-    bodies[i].position.y += bodies[i].velocity.y * DT;
-    bodies[i].position.z += bodies[i].velocity.z * DT;
+    
+    // Reducir la cantidad de cálculos
+    const int tileSize = 256; // Usar un tamaño de tile más pequeño
+    
+    // Procesar todos los tiles
+    for (int tile = 0; tile < (nBodies + tileSize - 1) / tileSize; ++tile) {
+        // Cargar este tile a memoria compartida
+        int idx = tile * tileSize + tx;
+        
+        // Solo cargar datos válidos a memoria compartida
+        if (tx < tileSize) { // Asegurarse de que no excedemos el tamaño del array
+            if (idx < nBodies) {
+                sharedPos[tx] = bodies[idx].position;
+                sharedMass[tx] = bodies[idx].mass;
+            } else {
+                sharedPos[tx] = Vector(0, 0, 0);
+                sharedMass[tx] = 0.0;
+            }
+        }
+        
+        __syncthreads();
+        
+        // Calcular fuerza solo para cuerpos válidos y dinámicos
+        if (i < nBodies && isDynamic) {
+            // Limitar el bucle al tamaño real del tile
+            int tileLimit = min(tileSize, nBodies - tile * tileSize);
+            
+            for (int j = 0; j < tileLimit; ++j) {
+                int jBody = tile * tileSize + j;
+                
+                // Evitar auto-interacción
+                if (jBody != i) {
+                    // Vector de distancia
+                    double rx = sharedPos[j].x - myPos.x;
+                    double ry = sharedPos[j].y - myPos.y;
+                    double rz = sharedPos[j].z - myPos.z;
+                    
+                    // Distancia al cuadrado con suavizado
+                    double distSqr = rx*rx + ry*ry + rz*rz + E*E;
+                    double dist = sqrt(distSqr);
+                    
+                    // Aplicar fuerza solo si estamos por encima del umbral de colisión
+                    if (dist >= COLLISION_TH) {
+                        double forceMag = (GRAVITY * myMass * sharedMass[j]) / (dist * distSqr);
+                        
+                        // Acumular aceleración
+                        myAcc.x += rx * forceMag / myMass;
+                        myAcc.y += ry * forceMag / myMass;
+                        myAcc.z += rz * forceMag / myMass;
+                    }
+                }
+            }
+        }
+        
+        __syncthreads();
+    }
+    
+    // Actualizar el cuerpo solo si es válido y dinámico
+    if (i < nBodies && isDynamic) {
+        // Guardar aceleración
+        bodies[i].acceleration = myAcc;
+        
+        // Actualizar velocidad
+        myVel.x += myAcc.x * DT;
+        myVel.y += myAcc.y * DT;
+        myVel.z += myAcc.z * DT;
+        bodies[i].velocity = myVel;
+        
+        // Actualizar posición
+        myPos.x += myVel.x * DT;
+        myPos.y += myVel.y * DT;
+        myPos.z += myVel.z * DT;
+        bodies[i].position = myPos;
+    }
 }
 
 GPUDirectSum::GPUDirectSum(int numBodies, BodyDistribution dist, unsigned int seed)
@@ -76,16 +122,16 @@ GPUDirectSum::~GPUDirectSum()
 
 void GPUDirectSum::computeForces()
 {
-    // Measure execution time
+    // Medir tiempo de ejecución
     CudaTimer timer(metrics.forceTimeMs);
 
-    // Launch kernel for direct force calculation
-    int blockSize = BLOCK_SIZE;
+    // Lanzar kernel con un tamaño de bloque más pequeño
+    int blockSize = 256; // Reducido de BLOCK_SIZE (1024)
     int gridSize = (nBodies + blockSize - 1) / blockSize;
 
-    // Launch kernel with error checking
-    CUDA_KERNEL_CALL(DirectSumForceKernel, gridSize, blockSize, 0, 0,
-                     d_bodies, nBodies);
+    // Lanzar kernel con comprobación de errores
+    DirectSumForceKernel<<<gridSize, blockSize, 0, 0>>>(d_bodies, nBodies);
+    CHECK_LAST_CUDA_ERROR();
 }
 
 void GPUDirectSum::update()
