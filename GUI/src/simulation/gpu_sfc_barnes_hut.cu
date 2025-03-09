@@ -1,5 +1,5 @@
 
-#include "../../include/simulation/sfc_barnes_hut.cuh"
+#include "../../include/simulation/gpu_sfc_barnes_hut.cuh"
 
 __global__ void ComputeOctantMortonCodesKernel(Node *nodes, uint64_t *mortonCodes, int *indices,
                                                int nNodes, Vector minBound, Vector maxBound)

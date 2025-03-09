@@ -187,70 +187,103 @@ void SimulationUIManager::renderBodyGenerationOptions()
         simulationState_.restart.store(true);
     }
 }
-// Fix for renderSimulationMethodSelector()
+
 void SimulationUIManager::renderSimulationMethodSelector()
 {
     ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Select Simulation Algorithm");
 
-    // Method selection - keep the 4 original options
+    // Method selection with the complete list of algorithms including SFC variants
     static const char *methodTypes[] = {
         "CPU Direct Sum",
+        "CPU SFC Direct Sum",
         "GPU Direct Sum",
+        "GPU SFC Direct Sum",
         "CPU Barnes-Hut",
-        "GPU Barnes-Hut"
+        "CPU SFC Barnes-Hut",
+        "GPU Barnes-Hut",
+        "GPU SFC Barnes-Hut"
     };
     
-    // Map between UI index and actual enum values
-    static const SimulationMethod methodMap[] = {
-        SimulationMethod::CPU_DIRECT_SUM,    // 0
-        SimulationMethod::GPU_DIRECT_SUM,    // 1
-        SimulationMethod::CPU_BARNES_HUT,    // 2
-        SimulationMethod::GPU_BARNES_HUT     // 3
-    };
-    
-    // Reverse mapping to find UI index from enum
-    int currentMethod = 0; // Default to first option
-    SimulationMethod actualMethod = simulationState_.simulationMethod.load();
-    
-    // Find the matching UI index for the current method
-    for (int i = 0; i < IM_ARRAYSIZE(methodMap); i++) {
-        if (methodMap[i] == actualMethod) {
-            currentMethod = i;
-            break;
-        }
-    }
+    // The enum values now directly correspond to array indices
+    int currentMethod = static_cast<int>(simulationState_.simulationMethod.load());
     
     if (ImGui::Combo("Algorithm", &currentMethod, methodTypes, IM_ARRAYSIZE(methodTypes)))
     {
-        // Map the UI selection back to the actual enum
-        SimulationMethod selectedMethod = methodMap[currentMethod];
-        simulationState_.simulationMethod.store(selectedMethod);
+        // Set the selected simulation method
+        simulationState_.simulationMethod.store(static_cast<SimulationMethod>(currentMethod));
 
         // Reset options based on new method selected
-        switch (selectedMethod)
+        switch (static_cast<SimulationMethod>(currentMethod))
         {
         case SimulationMethod::CPU_DIRECT_SUM:
-            // Default options for CPU Direct Sum
+        case SimulationMethod::CPU_BARNES_HUT:
+            // Default options for CPU methods
             simulationState_.useOpenMP.store(true);
             simulationState_.openMPThreads.store(omp_get_max_threads());
+            simulationState_.useSFC.store(false);
             break;
 
-        case SimulationMethod::CPU_BARNES_HUT:
-            // Default options for CPU Barnes-Hut
+        case SimulationMethod::CPU_SFC_DIRECT_SUM:
+        case SimulationMethod::CPU_SFC_BARNES_HUT:
+            // Default options for CPU SFC methods
             simulationState_.useOpenMP.store(true);
             simulationState_.openMPThreads.store(omp_get_max_threads());
+            simulationState_.useSFC.store(true);
             break;
 
         case SimulationMethod::GPU_DIRECT_SUM:
-            // No specific options for GPU Direct Sum
+        case SimulationMethod::GPU_BARNES_HUT:
+            // Default options for basic GPU methods
+            simulationState_.useSFC.store(false);
             break;
 
-        case SimulationMethod::GPU_BARNES_HUT:
-            // No specific default options
+        case SimulationMethod::GPU_SFC_DIRECT_SUM:
+        case SimulationMethod::GPU_SFC_BARNES_HUT:
+            // Default options for GPU SFC methods
+            simulationState_.useSFC.store(true);
             break;
         }
 
         simulationState_.restart.store(true);
+    }
+    
+    // Add method descriptions
+    ImGui::Spacing();
+    ImGui::TextWrapped("Method Description:");
+    
+    switch (static_cast<SimulationMethod>(currentMethod))
+    {
+    case SimulationMethod::CPU_DIRECT_SUM:
+        ImGui::TextWrapped("CPU Direct Sum: Computes all body-to-body interactions directly (O(n²) complexity). Good for smaller simulations.");
+        break;
+        
+    case SimulationMethod::CPU_SFC_DIRECT_SUM:
+        ImGui::TextWrapped("CPU SFC Direct Sum: Enhances Direct Sum with Space-Filling Curve for better cache utilization and memory access patterns.");
+        break;
+        
+    case SimulationMethod::GPU_DIRECT_SUM:
+        ImGui::TextWrapped("GPU Direct Sum: Leverages GPU parallelism for direct body-to-body calculations. Good for medium-sized simulations.");
+        break;
+        
+    case SimulationMethod::GPU_SFC_DIRECT_SUM:
+        ImGui::TextWrapped("GPU SFC Direct Sum: Combines GPU parallelism with Space-Filling Curve for improved memory access coherence.");
+        break;
+        
+    case SimulationMethod::CPU_BARNES_HUT:
+        ImGui::TextWrapped("CPU Barnes-Hut: Uses an octree to approximate distant interactions, reducing complexity to O(n log n). Good for larger simulations.");
+        break;
+        
+    case SimulationMethod::CPU_SFC_BARNES_HUT:
+        ImGui::TextWrapped("CPU SFC Barnes-Hut: Enhances Barnes-Hut with Space-Filling Curve for better cache performance and memory access patterns.");
+        break;
+        
+    case SimulationMethod::GPU_BARNES_HUT:
+        ImGui::TextWrapped("GPU Barnes-Hut: Implements Barnes-Hut algorithm on GPU for high-performance large-scale simulations.");
+        break;
+        
+    case SimulationMethod::GPU_SFC_BARNES_HUT:
+        ImGui::TextWrapped("GPU SFC Barnes-Hut: The most advanced algorithm, combining GPU Barnes-Hut with Space-Filling Curve optimization for maximum performance with very large simulations.");
+        break;
     }
 }
 

@@ -12,11 +12,18 @@
 
 #include "../include/common/constants.cuh"
 #include "../include/simulation/simulation_base.cuh"
-#include "../include/simulation/barnes_hut.cuh"
-#include "../include/simulation/sfc_barnes_hut.cuh"
-#include "../include/simulation/cpu_direct_sum.hpp" // CPU Direct Sum
-#include "../include/simulation/gpu_direct_sum.cuh" // GPU Direct Sum
+
+#include "../include/simulation/cpu_direct_sum.hpp"     // CPU Direct Sum
+#include "../include/simulation/cpu_sfc_direct_sum.hpp" // CPU SFC Direct Sum
+
 #include "../include/simulation/cpu_barnes_hut.hpp" // CPU Barnes-Hut
+
+#include "../include/simulation/gpu_barnes_hut.cuh"
+#include "../include/simulation/gpu_sfc_barnes_hut.cuh"
+
+#include "../include/simulation/gpu_direct_sum.cuh"     // GPU Direct Sum
+#include "../include/simulation/gpu_sfc_direct_sum.cuh" // GPU SFC Direct Sum
+
 #include "../include/ui/simulation_state.hpp"
 #include "../include/ui/opengl_renderer.hpp"
 #include "../include/ui/simulation_ui_manager.hpp"
@@ -123,9 +130,31 @@ void simulationThread(SimulationState *state)
             );
             break;
 
+        case SimulationMethod::CPU_SFC_DIRECT_SUM:
+            simulation = new SFCCPUDirectSum(
+                currentNumBodies,
+                currentUseOpenMP,     // Use OpenMP
+                currentOpenMPThreads, // Thread count
+                true,                 // Enable SFC
+                currentReorderFreq,   // Reorder frequency
+                currentDistribution,  // Distribution type
+                currentSeed           // Random seed
+            );
+            break;
+
         case SimulationMethod::GPU_DIRECT_SUM:
             simulation = new GPUDirectSum(
                 currentNumBodies,
+                currentDistribution, // Distribution type
+                currentSeed          // Random seed
+            );
+            break;
+
+        case SimulationMethod::GPU_SFC_DIRECT_SUM:
+            simulation = new SFCGPUDirectSum(
+                currentNumBodies,
+                true,                // SFC is always enabled for this method
+                currentReorderFreq,  // Reorder frequency
                 currentDistribution, // Distribution type
                 currentSeed          // Random seed
             );
@@ -174,24 +203,8 @@ void simulationThread(SimulationState *state)
                 currentDistribution, // Distribution type
                 currentSeed          // Random seed
             );
-
-            // Check if SFC should be enabled for regular Barnes-Hut
-            if (currentUseSFC && simulation)
-            {
-                // Convert to SFCBarnesHut for SFC support
-                delete simulation;
-                simulation = new SFCBarnesHut(
-                    currentNumBodies,
-                    true,                // Enable SFC
-                    currentOrderingMode, // Ordering mode
-                    currentReorderFreq,  // Reorder frequency
-                    currentDistribution, // Distribution type
-                    currentSeed          // Random seed
-                );
-            }
             break;
         }
-
         if (!simulation)
         {
             logMessage("Failed to create simulation", true);
@@ -293,9 +306,31 @@ void simulationThread(SimulationState *state)
                         );
                         break;
 
+                    case SimulationMethod::CPU_SFC_DIRECT_SUM:
+                        simulation = new SFCCPUDirectSum(
+                            currentNumBodies,
+                            currentUseOpenMP,     // Use OpenMP
+                            currentOpenMPThreads, // Thread count
+                            true,                 // Enable SFC
+                            currentReorderFreq,   // Reorder frequency
+                            currentDistribution,  // Distribution type
+                            currentSeed           // Random seed
+                        );
+                        break;
+
                     case SimulationMethod::GPU_DIRECT_SUM:
                         simulation = new GPUDirectSum(
                             currentNumBodies,
+                            currentDistribution, // Distribution type
+                            currentSeed          // Random seed
+                        );
+                        break;
+
+                    case SimulationMethod::GPU_SFC_DIRECT_SUM:
+                        simulation = new SFCGPUDirectSum(
+                            currentNumBodies,
+                            true,                // SFC is always enabled for this method
+                            currentReorderFreq,  // Reorder frequency
                             currentDistribution, // Distribution type
                             currentSeed          // Random seed
                         );
@@ -360,7 +395,6 @@ void simulationThread(SimulationState *state)
                         }
                         break;
                     }
-
                     if (!simulation)
                     {
                         logMessage("Failed to recreate simulation", true);

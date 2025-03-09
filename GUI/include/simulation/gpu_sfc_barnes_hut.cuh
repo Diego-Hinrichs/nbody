@@ -1,7 +1,7 @@
 #ifndef SFC_BARNES_HUT_CUH
 #define SFC_BARNES_HUT_CUH
 
-#include "../../include/simulation/barnes_hut.cuh"
+#include "../../include/simulation/gpu_barnes_hut.cuh"
 #include "../sfc/body_sorter.cuh"
 #include "../ui/simulation_state.hpp"
 

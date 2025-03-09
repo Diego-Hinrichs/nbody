@@ -14,14 +14,14 @@
  */
 class CPUDirectSum : public SimulationBase
 {
-private:
+protected:
     bool useOpenMP; // Flag to enable/disable OpenMP parallelization
     int numThreads; // Number of OpenMP threads to use
 
     /**
      * @brief Compute forces between bodies using direct summation
      */
-    void computeForces();
+    virtual void computeForces();
 
 public:
     /**

@@ -17,11 +17,11 @@ __global__ void DirectSumForceKernel(Body *bodies, int nBodies);
  */
 class GPUDirectSum : public SimulationBase
 {
-private:
+protected:
     /**
      * @brief Compute forces between bodies using direct summation on GPU
      */
-    void computeForces();
+    virtual void computeForces();
 
 public:
     /**

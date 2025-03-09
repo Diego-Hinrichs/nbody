@@ -1,4 +1,4 @@
-#include "../../include/simulation/barnes_hut.cuh"
+#include "../../include/simulation/gpu_barnes_hut.cuh"
 
 // Updated external function declaration to match the new signature
 extern "C" void BuildOptimizedOctTree(
