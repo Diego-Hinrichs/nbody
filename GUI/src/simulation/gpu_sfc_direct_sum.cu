@@ -1,6 +1,7 @@
 #include "../../include/simulation/gpu_sfc_direct_sum.cuh"
-#include "../../include/sfc/morton.cuh"
+#include "../../include/sfc/sfc_framework.cuh"
 #include <iostream>
+#include <algorithm>
 
 /**
  * @brief CUDA kernel for direct force calculation between all body pairs, with SFC ordering support
@@ -134,12 +135,13 @@ SFCGPUDirectSum::SFCGPUDirectSum(int numBodies, bool useSpaceFillingCurve,
       useSFC(useSpaceFillingCurve),
       sorter(nullptr),
       d_orderedIndices(nullptr),
+      curveType(sfc::CurveType::MORTON), // Default to Morton curve
       reorderFrequency(initialReorderFreq),
       iterationCounter(0)
 {
     if (useSFC)
     {
-        sorter = new sfc::BodySorter(numBodies);
+        sorter = new sfc::BodySorter(numBodies, curveType);
     }
 
     // Initialize domain bounds to invalid values to force update
@@ -163,6 +165,21 @@ SFCGPUDirectSum::~SFCGPUDirectSum()
     }
 
     // The d_orderedIndices is managed by the sorter, so we don't free it here
+}
+
+void SFCGPUDirectSum::setCurveType(sfc::CurveType type)
+{
+    if (type != curveType)
+    {
+        curveType = type;
+
+        // Update sorter with new curve type
+        if (sorter)
+            sorter->setCurveType(type);
+
+        // Force reordering on next update
+        iterationCounter = reorderFrequency;
+    }
 }
 
 void SFCGPUDirectSum::updateBoundingBox()

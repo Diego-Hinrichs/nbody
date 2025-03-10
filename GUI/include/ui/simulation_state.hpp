@@ -6,6 +6,7 @@
 #include <vector>
 #include <string>
 #include "../common/types.cuh"
+#include "../sfc/sfc_framework.cuh"
 
 // Enum for SFC ordering mode
 enum class SFCOrderingMode
@@ -29,7 +30,7 @@ enum class SimulationMethod
 {
     CPU_DIRECT_SUM,
     CPU_SFC_DIRECT_SUM,
-    
+
     GPU_DIRECT_SUM,
     GPU_SFC_DIRECT_SUM,
 
@@ -55,7 +56,8 @@ struct SimulationState
 
     // SFC specific parameters
     std::atomic<SFCOrderingMode> sfcOrderingMode;
-    std::atomic<int> reorderFrequency; // How often to reorder (iterations)
+    std::atomic<int> reorderFrequency;        // How often to reorder (iterations)
+    std::atomic<sfc::CurveType> sfcCurveType; // Type of SFC (Morton or Hilbert)
 
     // Distribution parameters
     std::atomic<BodyDistribution> bodyDistribution;

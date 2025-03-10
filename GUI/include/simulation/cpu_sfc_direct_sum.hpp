@@ -4,7 +4,7 @@
 #include "../common/types.cuh"
 #include "../common/constants.cuh"
 #include "../simulation/cpu_direct_sum.hpp"
-#include "../sfc/morton.cuh"
+#include "../sfc/sfc_framework.cuh"
 #include <omp.h>
 #include <vector>
 #include <algorithm>

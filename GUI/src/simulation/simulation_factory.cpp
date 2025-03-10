@@ -1,12 +1,40 @@
 #include "../../include/simulation/simulation_factory.hpp"
 #include <iostream>
 
+std::unique_ptr<SimulationBase> SimulationFactory::createFromState(const SimulationState &state)
+{
+    // Extract parameters from state
+    int numBodies = state.numBodies.load();
+    SimulationMethod method = state.simulationMethod.load();
+    bool useSFC = state.useSFC.load();
+    SFCOrderingMode orderingMode = state.sfcOrderingMode.load();
+    int reorderFreq = state.reorderFrequency.load();
+    sfc::CurveType curveType = state.sfcCurveType.load();
+    BodyDistribution distribution = state.bodyDistribution.load();
+    unsigned int seed = state.randomSeed.load();
+    bool useOpenMP = state.useOpenMP.load();
+    int numThreads = state.openMPThreads.load();
+
+    // Create simulation using the factory method
+    return createSimulation(
+        method,
+        numBodies,
+        useSFC,
+        orderingMode,
+        reorderFreq,
+        curveType,
+        distribution,
+        seed,
+        useOpenMP,
+        numThreads);
+}
 std::unique_ptr<SimulationBase> SimulationFactory::createSimulation(
     SimulationMethod method,
     int numBodies,
     bool useSFC,
     SFCOrderingMode orderingMode,
     int reorderFreq,
+    sfc::CurveType curveType,
     BodyDistribution distribution,
     unsigned int seed,
     bool useOpenMP,
@@ -23,6 +51,7 @@ std::unique_ptr<SimulationBase> SimulationFactory::createSimulation(
     if (useSFC)
     {
         std::cout << ", Ordering=" << (orderingMode == SFCOrderingMode::PARTICLES ? "particles" : "octants")
+                  << ", Curve=" << (curveType == sfc::CurveType::MORTON ? "Morton" : "Hilbert")
                   << ", ReorderFreq=" << reorderFreq;
     }
 
@@ -42,7 +71,8 @@ std::unique_ptr<SimulationBase> SimulationFactory::createSimulation(
         break;
 
     case SimulationMethod::CPU_SFC_DIRECT_SUM:
-        simulation = std::make_unique<SFCCPUDirectSum>(
+    {
+        auto sfcSim = std::make_unique<SFCCPUDirectSum>(
             numBodies,
             useOpenMP,    // Use OpenMP
             numThreads,   // Thread count
@@ -51,7 +81,14 @@ std::unique_ptr<SimulationBase> SimulationFactory::createSimulation(
             distribution, // Distribution type
             seed          // Random seed
         );
-        break;
+
+        // Set curve type
+        // This would require adding a setCurveType method to SFCCPUDirectSum
+        // sfcSim->setCurveType(curveType);
+
+        simulation = std::move(sfcSim);
+    }
+    break;
 
     case SimulationMethod::GPU_DIRECT_SUM:
         simulation = std::make_unique<GPUDirectSum>(
@@ -62,14 +99,21 @@ std::unique_ptr<SimulationBase> SimulationFactory::createSimulation(
         break;
 
     case SimulationMethod::GPU_SFC_DIRECT_SUM:
-        simulation = std::make_unique<SFCGPUDirectSum>(
+    {
+        auto sfcSim = std::make_unique<SFCGPUDirectSum>(
             numBodies,
             true,         // SFC is always enabled for this method
             reorderFreq,  // Reorder frequency
             distribution, // Distribution type
             seed          // Random seed
         );
-        break;
+
+        // Set curve type
+        sfcSim->setCurveType(curveType);
+
+        simulation = std::move(sfcSim);
+    }
+    break;
 
     case SimulationMethod::CPU_BARNES_HUT:
         simulation = std::make_unique<CPUBarnesHut>(
@@ -82,7 +126,8 @@ std::unique_ptr<SimulationBase> SimulationFactory::createSimulation(
         break;
 
     case SimulationMethod::CPU_SFC_BARNES_HUT:
-        simulation = std::make_unique<CPUBarnesHut>(
+    {
+        auto sfcSim = std::make_unique<CPUBarnesHut>(
             numBodies,
             useOpenMP,    // Use OpenMP
             numThreads,   // Thread count
@@ -92,10 +137,18 @@ std::unique_ptr<SimulationBase> SimulationFactory::createSimulation(
             orderingMode, // Ordering mode
             reorderFreq   // Reorder frequency
         );
-        break;
+
+        // Set curve type
+        // This would require adding a setCurveType method to CPUBarnesHut
+        // sfcSim->setCurveType(curveType);
+
+        simulation = std::move(sfcSim);
+    }
+    break;
 
     case SimulationMethod::GPU_SFC_BARNES_HUT:
-        simulation = std::make_unique<SFCBarnesHut>(
+    {
+        auto sfcSim = std::make_unique<SFCBarnesHut>(
             numBodies,
             true,         // SFC is always enabled for this method
             orderingMode, // Ordering mode
@@ -103,14 +156,20 @@ std::unique_ptr<SimulationBase> SimulationFactory::createSimulation(
             distribution, // Distribution type
             seed          // Random seed
         );
-        break;
+
+        // Set curve type
+        sfcSim->setCurveType(curveType);
+
+        simulation = std::move(sfcSim);
+    }
+    break;
 
     case SimulationMethod::GPU_BARNES_HUT:
     default:
         if (useSFC)
         {
             // Use SFCBarnesHut if SFC is enabled
-            simulation = std::make_unique<SFCBarnesHut>(
+            auto sfcSim = std::make_unique<SFCBarnesHut>(
                 numBodies,
                 true,         // Enable SFC
                 orderingMode, // Ordering mode
@@ -118,6 +177,11 @@ std::unique_ptr<SimulationBase> SimulationFactory::createSimulation(
                 distribution, // Distribution type
                 seed          // Random seed
             );
+
+            // Set curve type
+            sfcSim->setCurveType(curveType);
+
+            simulation = std::move(sfcSim);
         }
         else
         {
@@ -132,30 +196,4 @@ std::unique_ptr<SimulationBase> SimulationFactory::createSimulation(
     }
 
     return simulation;
-}
-
-std::unique_ptr<SimulationBase> SimulationFactory::createFromState(const SimulationState &state)
-{
-    // Extract parameters from state
-    int numBodies = state.numBodies.load();
-    SimulationMethod method = state.simulationMethod.load();
-    bool useSFC = state.useSFC.load();
-    SFCOrderingMode orderingMode = state.sfcOrderingMode.load();
-    int reorderFreq = state.reorderFrequency.load();
-    BodyDistribution distribution = state.bodyDistribution.load();
-    unsigned int seed = state.randomSeed.load();
-    bool useOpenMP = state.useOpenMP.load();
-    int numThreads = state.openMPThreads.load();
-
-    // Create simulation using the factory method
-    return createSimulation(
-        method,
-        numBodies,
-        useSFC,
-        orderingMode,
-        reorderFreq,
-        distribution,
-        seed,
-        useOpenMP,
-        numThreads);
 }

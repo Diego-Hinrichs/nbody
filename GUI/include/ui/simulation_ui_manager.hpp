@@ -39,6 +39,7 @@ private:
     void renderVisualizationOptions();
     void renderBodyGenerationOptions();
     void renderAdvancedOptions();
+    void renderSFCOptions();
 };
 
 #endif // SIMULATION_UI_MANAGER_H

@@ -1,47 +1,75 @@
-
 #include "../../include/simulation/gpu_sfc_barnes_hut.cuh"
+#include "../../include/sfc/sfc_framework.cuh"
+#include <iostream>
+#include <algorithm>
 
 SFCBarnesHut::SFCBarnesHut(int numBodies, bool useSpaceFillingCurve,
                            SFCOrderingMode initialOrderingMode, int initialReorderFreq,
                            BodyDistribution dist, unsigned int seed)
     : BarnesHut(numBodies, dist, seed),
       useSFC(useSpaceFillingCurve),
-      sorter(nullptr),
+      bodySorter(nullptr),
+      octantSorter(nullptr),
       d_orderedIndices(nullptr),
       d_octantIndices(nullptr),
       orderingMode(initialOrderingMode),
       reorderFrequency(initialReorderFreq),
-      iterationCounter(0)
+      iterationCounter(0),
+      curveType(sfc::CurveType::MORTON) // Default to Morton curve
 {
     if (useSFC)
     {
-        sorter = new sfc::BodySorter(numBodies);
-
-        // Allocate device memory for octant indices
-        CHECK_CUDA_ERROR(cudaMalloc(&d_octantIndices, MAX_NODES * sizeof(int)));
+        // Create sorters with appropriate curve type
+        bodySorter = new sfc::BodySorter(numBodies, curveType);
+        octantSorter = new sfc::OctantSorter(MAX_NODES, curveType);
     }
 
     // Initialize domain bounds to invalid values to force update
     minBound = Vector(INFINITY, INFINITY, INFINITY);
     maxBound = Vector(-INFINITY, -INFINITY, -INFINITY);
+
+    std::cout << "SFC Barnes-Hut Simulation created with " << numBodies << " bodies." << std::endl;
+    if (useSFC)
+    {
+        std::cout << "Space-Filling Curve ordering enabled with "
+                  << (orderingMode == SFCOrderingMode::PARTICLES ? "particle" : "octant")
+                  << " ordering and reorder frequency " << reorderFrequency << std::endl;
+    }
 }
 
 SFCBarnesHut::~SFCBarnesHut()
 {
-    if (sorter)
+    if (bodySorter)
     {
-        delete sorter;
-        sorter = nullptr;
+        delete bodySorter;
+        bodySorter = nullptr;
     }
 
-    // Clean up octant indices
-    if (d_octantIndices)
+    if (octantSorter)
     {
-        CHECK_CUDA_ERROR(cudaFree(d_octantIndices));
-        d_octantIndices = nullptr;
+        delete octantSorter;
+        octantSorter = nullptr;
     }
 
-    // We don't need to free d_orderedIndices as it's managed by the sorter
+    // Note: d_orderedIndices and d_octantIndices are managed by the sorters
+}
+
+void SFCBarnesHut::setCurveType(sfc::CurveType type)
+{
+    if (type != curveType)
+    {
+        curveType = type;
+
+        // Update sorters with new curve type
+        if (bodySorter)
+            bodySorter->setCurveType(type);
+
+        if (octantSorter)
+            octantSorter->setCurveType(type);
+
+        // Force reordering on next update
+        iterationCounter = reorderFrequency;
+    }
 }
 
 void SFCBarnesHut::updateBoundingBox()
@@ -53,11 +81,20 @@ void SFCBarnesHut::updateBoundingBox()
     // Update domain bounds
     minBound = rootNode.topLeftFront;
     maxBound = rootNode.botRightBack;
+
+    // Add a small padding to avoid edge cases
+    double padding = std::max(1.0e10, (maxBound.x - minBound.x) * 0.01);
+    minBound.x -= padding;
+    minBound.y -= padding;
+    minBound.z -= padding;
+    maxBound.x += padding;
+    maxBound.y += padding;
+    maxBound.z += padding;
 }
 
 void SFCBarnesHut::orderBodiesBySFC()
 {
-    if (!useSFC || !sorter)
+    if (!useSFC || !bodySorter)
     {
         d_orderedIndices = nullptr;
         return;
@@ -67,38 +104,22 @@ void SFCBarnesHut::orderBodiesBySFC()
     updateBoundingBox();
 
     // Get indices ordered by SFC
-    d_orderedIndices = sorter->sortBodies(d_bodies, minBound, maxBound);
+    d_orderedIndices = bodySorter->sortBodies(d_bodies, minBound, maxBound);
 }
 
 void SFCBarnesHut::orderOctantsBySFC(Node *nodes, int nNodes)
 {
-    if (!useSFC || !d_octantIndices)
+    if (!useSFC || !octantSorter)
     {
+        d_octantIndices = nullptr;
         return;
     }
 
     // Update domain bounds
     updateBoundingBox();
 
-    // Allocate temporary device memory for Morton codes
-    uint64_t *d_mortonCodes;
-    CHECK_CUDA_ERROR(cudaMalloc(&d_mortonCodes, nNodes * sizeof(uint64_t)));
-
-    // Compute Morton codes for all octants
-    int blockSize = BLOCK_SIZE;
-    int gridSize = (nNodes + blockSize - 1) / blockSize;
-
-    ComputeOctantMortonCodesKernel<<<gridSize, blockSize>>>(
-        nodes, d_mortonCodes, d_octantIndices, nNodes, minBound, maxBound);
-    CHECK_LAST_CUDA_ERROR();
-
-    // Sort octants by Morton code using Thrust
-    thrust::device_ptr<uint64_t> thrust_codes(d_mortonCodes);
-    thrust::device_ptr<int> thrust_indices(d_octantIndices);
-    thrust::sort_by_key(thrust::device, thrust_codes, thrust_codes + nNodes, thrust_indices);
-
-    // Free temporary memory
-    CHECK_CUDA_ERROR(cudaFree(d_mortonCodes));
+    // Get indices ordered by SFC
+    d_octantIndices = octantSorter->sortOctants(nodes, minBound, maxBound);
 }
 
 // Override constructOctree from the base class
@@ -157,7 +178,7 @@ void SFCBarnesHut::update()
                 // Use base class's constructOctree method to build initial tree
                 BarnesHut::constructOctree();
 
-                // 2. Compute Morton codes for octants
+                // 2. Compute SFC codes for octants
                 orderOctantsBySFC(d_nodes, nNodes);
 
                 // 3. Now build the octree again, but with octant ordering

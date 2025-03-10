@@ -1,5 +1,5 @@
 #include "../../include/simulation/cpu_sfc_direct_sum.hpp"
-#include "../../include/sfc/morton.cuh"
+#include "../../include/sfc/sfc_framework.cuh"
 #include <iostream>
 #include <limits>
 #include <algorithm>
@@ -174,7 +174,7 @@ void SFCCPUDirectSum::orderBodiesBySFC()
 #pragma omp parallel for
         for (int i = 0; i < nBodies; i++)
         {
-            mortonCodes[i] = sfc::positionToMorton(h_bodies[i].position, minBound, maxBound);
+            mortonCodes[i] = sfc::MortonCurve().positionToCode(h_bodies[i].position, minBound, maxBound);
             orderedIndices[i] = i;
         }
     }
@@ -182,7 +182,7 @@ void SFCCPUDirectSum::orderBodiesBySFC()
     {
         for (int i = 0; i < nBodies; i++)
         {
-            mortonCodes[i] = sfc::positionToMorton(h_bodies[i].position, minBound, maxBound);
+            mortonCodes[i] = sfc::MortonCurve().positionToCode(h_bodies[i].position, minBound, maxBound);
             orderedIndices[i] = i;
         }
     }

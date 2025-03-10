@@ -1,14 +1,15 @@
 #ifndef SIMULATION_THREAD_HPP
 #define SIMULATION_THREAD_HPP
 
-#include <thread>
-#include <atomic>
-#include <memory>
-#include <chrono>
 #include "../common/types.cuh"
 #include "../ui/simulation_state.hpp"
 #include "simulation_base.cuh"
 #include "simulation_factory.hpp"
+
+#include <thread>
+#include <atomic>
+#include <memory>
+#include <chrono>
 
 /**
  * @brief Class to encapsulate simulation thread logic

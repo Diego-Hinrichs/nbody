@@ -1,27 +1,34 @@
-#ifndef GPU_SFC_DIRECT_SUM_CUH
-#define GPU_SFC_DIRECT_SUM_CUH
+#ifndef SFC_GPU_DIRECT_SUM_CUH
+#define SFC_GPU_DIRECT_SUM_CUH
 
 #include "../common/types.cuh"
 #include "../common/constants.cuh"
 #include "../common/error_handling.cuh"
 #include "../simulation/gpu_direct_sum.cuh"
-#include "../sfc/body_sorter.cuh"
+
+// Forward declarations
+namespace sfc
+{
+    class BodySorter;
+    enum class CurveType;
+}
 
 /**
  * @brief SFC-enhanced GPU Direct Sum N-body simulation
  *
  * This class extends the standard GPU Direct Sum implementation by sorting
- * bodies according to their position on a space-filling curve (Morton code),
+ * bodies according to their position on a space-filling curve (Morton or Hilbert),
  * which improves memory coherence during force calculation.
  */
 class SFCGPUDirectSum : public GPUDirectSum
 {
 private:
-    bool useSFC;             // Flag to enable/disable SFC ordering
-    Vector minBound;         // Minimum domain bounds
-    Vector maxBound;         // Maximum domain bounds
-    sfc::BodySorter *sorter; // Body sorter for SFC ordering
-    int *d_orderedIndices;   // Device array for SFC-ordered indices
+    bool useSFC;              // Flag to enable/disable SFC ordering
+    Vector minBound;          // Minimum domain bounds
+    Vector maxBound;          // Maximum domain bounds
+    sfc::BodySorter *sorter;  // Body sorter for SFC ordering
+    int *d_orderedIndices;    // Device array for SFC-ordered indices
+    sfc::CurveType curveType; // Type of SFC (Morton or Hilbert)
 
     // Reordering parameters
     int reorderFrequency; // How often to reorder (in iterations)
@@ -33,7 +40,7 @@ private:
     void updateBoundingBox();
 
     /**
-     * @brief Order bodies according to their Morton codes
+     * @brief Order bodies according to their SFC position
      */
     void orderBodiesBySFC();
 
@@ -81,6 +88,12 @@ public:
     }
 
     /**
+     * @brief Set the curve type (Morton or Hilbert)
+     * @param type New curve type
+     */
+    void setCurveType(sfc::CurveType type);
+
+    /**
      * @brief Set the reordering frequency
      * @param frequency New reordering frequency in iterations
      */
@@ -108,4 +121,4 @@ public:
     }
 };
 
-#endif // SFC_GPU_DIRECT_SUM_CUH
+#endif

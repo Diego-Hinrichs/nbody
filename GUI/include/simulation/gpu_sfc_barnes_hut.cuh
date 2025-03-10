@@ -2,30 +2,39 @@
 #define SFC_BARNES_HUT_CUH
 
 #include "../../include/simulation/gpu_barnes_hut.cuh"
-#include "../sfc/body_sorter.cuh"
-#include "../ui/simulation_state.hpp"
+#include "../../include/ui/simulation_state.hpp"
+
+// Forward declarations
+namespace sfc
+{
+    class BodySorter;
+    class OctantSorter;
+    enum class CurveType;
+}
 
 /**
  * @brief Space-Filling Curve enhanced Barnes-Hut simulation
  *
  * This class extends the standard Barnes-Hut implementation by sorting
- * bodies or octants according to their position on a space-filling curve (Morton code),
+ * bodies or octants according to their position on a space-filling curve (Morton or Hilbert),
  * which improves memory coherence during tree traversal.
  */
 class SFCBarnesHut : public BarnesHut
 {
 private:
-    bool useSFC;             // Flag to enable/disable SFC ordering
-    Vector minBound;         // Minimum domain bounds
-    Vector maxBound;         // Maximum domain bounds
-    sfc::BodySorter *sorter; // Body sorter for SFC ordering
-    int *d_orderedIndices;   // Device array for SFC-ordered indices
-    int *d_octantIndices;    // Device array for octant ordering
+    bool useSFC;                     // Flag to enable/disable SFC ordering
+    Vector minBound;                 // Minimum domain bounds
+    Vector maxBound;                 // Maximum domain bounds
+    sfc::BodySorter *bodySorter;     // Body sorter for SFC ordering
+    sfc::OctantSorter *octantSorter; // Octant sorter for SFC ordering
+    int *d_orderedIndices;           // Device array for SFC-ordered indices
+    int *d_octantIndices;            // Device array for octant ordering
 
     // Reordering parameters
     SFCOrderingMode orderingMode; // Current ordering mode
     int reorderFrequency;         // How often to reorder (in iterations)
     int iterationCounter;         // Counts iterations between reordering
+    sfc::CurveType curveType;     // Type of SFC (Morton or Hilbert)
 
     /**
      * @brief Update domain bounds based on root node
@@ -33,12 +42,12 @@ private:
     void updateBoundingBox();
 
     /**
-     * @brief Order bodies according to their Morton codes
+     * @brief Order bodies according to SFC
      */
     void orderBodiesBySFC();
 
     /**
-     * @brief Order octants according to their Morton codes
+     * @brief Order octants according to SFC
      * @param nodes Device pointer to octree nodes
      * @param nNodes Number of nodes
      */
@@ -106,6 +115,12 @@ public:
     {
         reorderFrequency = frequency;
     }
+
+    /**
+     * @brief Set the curve type (Morton or Hilbert)
+     * @param type New curve type
+     */
+    void setCurveType(sfc::CurveType type);
 
     /**
      * @brief Check if SFC ordering is enabled

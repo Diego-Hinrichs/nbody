@@ -13,6 +13,7 @@
 #include "gpu_sfc_direct_sum.cuh"
 #include "gpu_barnes_hut.cuh"
 #include "gpu_sfc_barnes_hut.cuh"
+#include "../sfc/sfc_framework.cuh"
 
 /**
  * @brief Factory class to create simulation instances
@@ -31,6 +32,7 @@ public:
      * @param useSFC Flag to enable/disable Space-Filling Curve
      * @param orderingMode SFC ordering mode (particles or octants)
      * @param reorderFreq Reordering frequency for SFC
+     * @param curveType Type of SFC (Morton or Hilbert)
      * @param distribution Distribution type for bodies
      * @param seed Random seed
      * @param useOpenMP Flag to enable/disable OpenMP parallelization
@@ -43,6 +45,7 @@ public:
         bool useSFC,
         SFCOrderingMode orderingMode,
         int reorderFreq,
+        sfc::CurveType curveType,
         BodyDistribution distribution,
         unsigned int seed,
         bool useOpenMP,

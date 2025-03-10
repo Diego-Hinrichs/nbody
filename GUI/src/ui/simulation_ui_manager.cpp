@@ -47,10 +47,17 @@ void SimulationUIManager::renderUI(GLFWwindow *window)
             ImGui::EndTabItem();
         }
 
-        // Tab 4: Advanced options (SFC)
+        // Tab 4: Advanced options (SFC, OpenMP)
         if (ImGui::BeginTabItem("Advanced Options"))
         {
             renderAdvancedOptions();
+            ImGui::EndTabItem();
+        }
+
+        // Tab 5: SFC-specific options (optionally, if you want a dedicated tab)
+        if (ImGui::BeginTabItem("SFC Options"))
+        {
+            renderSFCOptions();
             ImGui::EndTabItem();
         }
 
@@ -201,12 +208,11 @@ void SimulationUIManager::renderSimulationMethodSelector()
         "CPU Barnes-Hut",
         "CPU SFC Barnes-Hut",
         "GPU Barnes-Hut",
-        "GPU SFC Barnes-Hut"
-    };
-    
+        "GPU SFC Barnes-Hut"};
+
     // The enum values now directly correspond to array indices
     int currentMethod = static_cast<int>(simulationState_.simulationMethod.load());
-    
+
     if (ImGui::Combo("Algorithm", &currentMethod, methodTypes, IM_ARRAYSIZE(methodTypes)))
     {
         // Set the selected simulation method
@@ -246,41 +252,41 @@ void SimulationUIManager::renderSimulationMethodSelector()
 
         simulationState_.restart.store(true);
     }
-    
+
     // Add method descriptions
     ImGui::Spacing();
     ImGui::TextWrapped("Method Description:");
-    
+
     switch (static_cast<SimulationMethod>(currentMethod))
     {
     case SimulationMethod::CPU_DIRECT_SUM:
         ImGui::TextWrapped("CPU Direct Sum: Computes all body-to-body interactions directly (O(n²) complexity). Good for smaller simulations.");
         break;
-        
+
     case SimulationMethod::CPU_SFC_DIRECT_SUM:
         ImGui::TextWrapped("CPU SFC Direct Sum: Enhances Direct Sum with Space-Filling Curve for better cache utilization and memory access patterns.");
         break;
-        
+
     case SimulationMethod::GPU_DIRECT_SUM:
         ImGui::TextWrapped("GPU Direct Sum: Leverages GPU parallelism for direct body-to-body calculations. Good for medium-sized simulations.");
         break;
-        
+
     case SimulationMethod::GPU_SFC_DIRECT_SUM:
         ImGui::TextWrapped("GPU SFC Direct Sum: Combines GPU parallelism with Space-Filling Curve for improved memory access coherence.");
         break;
-        
+
     case SimulationMethod::CPU_BARNES_HUT:
         ImGui::TextWrapped("CPU Barnes-Hut: Uses an octree to approximate distant interactions, reducing complexity to O(n log n). Good for larger simulations.");
         break;
-        
+
     case SimulationMethod::CPU_SFC_BARNES_HUT:
         ImGui::TextWrapped("CPU SFC Barnes-Hut: Enhances Barnes-Hut with Space-Filling Curve for better cache performance and memory access patterns.");
         break;
-        
+
     case SimulationMethod::GPU_BARNES_HUT:
         ImGui::TextWrapped("GPU Barnes-Hut: Implements Barnes-Hut algorithm on GPU for high-performance large-scale simulations.");
         break;
-        
+
     case SimulationMethod::GPU_SFC_BARNES_HUT:
         ImGui::TextWrapped("GPU SFC Barnes-Hut: The most advanced algorithm, combining GPU Barnes-Hut with Space-Filling Curve optimization for maximum performance with very large simulations.");
         break;
@@ -381,6 +387,117 @@ void SimulationUIManager::renderAdvancedOptions()
             simulationState_.reorderFrequency.store(reorderFreq);
         }
         ImGui::TextWrapped("How often to recalculate the space-filling curve. Lower values improve accuracy but reduce performance.");
+    }
+    else
+    {
+        ImGui::TextWrapped("Enable Space-Filling Curve to access ordering options.");
+    }
+
+    renderSFCOptions();
+}
+
+void SimulationUIManager::renderSFCOptions()
+{
+    SimulationMethod currentMethod = simulationState_.simulationMethod.load();
+
+    // Only show SFC options for methods that support it
+    bool supportsParticleOrdering = (currentMethod == SimulationMethod::CPU_SFC_DIRECT_SUM ||
+                                     currentMethod == SimulationMethod::GPU_SFC_DIRECT_SUM ||
+                                     currentMethod == SimulationMethod::CPU_SFC_BARNES_HUT ||
+                                     currentMethod == SimulationMethod::GPU_SFC_BARNES_HUT ||
+                                     currentMethod == SimulationMethod::CPU_BARNES_HUT ||
+                                     currentMethod == SimulationMethod::GPU_BARNES_HUT);
+
+    bool supportsOctantOrdering = (currentMethod == SimulationMethod::CPU_SFC_BARNES_HUT ||
+                                   currentMethod == SimulationMethod::GPU_SFC_BARNES_HUT ||
+                                   currentMethod == SimulationMethod::CPU_BARNES_HUT ||
+                                   currentMethod == SimulationMethod::GPU_BARNES_HUT);
+
+    if (!supportsParticleOrdering && !supportsOctantOrdering)
+    {
+        ImGui::TextWrapped("Space-Filling Curve options are not applicable to the current simulation method.");
+        return;
+    }
+
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Space-Filling Curve Options");
+
+    // SFC Toggle
+    bool sfcEnabled = simulationState_.useSFC.load();
+    if (ImGui::Checkbox("Enable Space-Filling Curve", &sfcEnabled))
+    {
+        simulationState_.useSFC.store(sfcEnabled);
+        simulationState_.restart.store(true);
+    }
+
+    if (sfcEnabled)
+    {
+        ImGui::TextWrapped("SFC improves memory access patterns by organizing data along a space-filling curve.");
+
+        // SFC Type Selection
+        static const char *curveTypes[] = {"Morton (Z-order)", "Hilbert"};
+        static int curveTypeIndex = 0; // Default to Morton
+
+        if (ImGui::Combo("Curve Type", &curveTypeIndex, curveTypes, IM_ARRAYSIZE(curveTypes)))
+        {
+            // Store in simulation state - this will need to be added to SimulationState
+            // Alternatively, add this in the GUI code without storage
+            simulationState_.restart.store(true);
+        }
+
+        // Show appropriate description based on selection
+        if (curveTypeIndex == 0)
+        {
+            ImGui::TextWrapped("Morton/Z-order: Simple bit-interleaving curve. Faster to compute but less spatial coherence.");
+        }
+        else
+        {
+            ImGui::TextWrapped("Hilbert curve: Better spatial coherence (neighboring points stay closer), slightly more expensive to compute.");
+        }
+
+        // Only show ordering mode for Barnes-Hut methods
+        if (supportsOctantOrdering)
+        {
+            // SFC Ordering Mode
+            static const char *orderingModes[] = {"Particle Ordering", "Octant Ordering"};
+            int currentMode = static_cast<int>(simulationState_.sfcOrderingMode.load());
+
+            if (ImGui::Combo("Ordering Mode", &currentMode, orderingModes, IM_ARRAYSIZE(orderingModes)))
+            {
+                simulationState_.sfcOrderingMode.store(static_cast<SFCOrderingMode>(currentMode));
+                simulationState_.restart.store(true);
+            }
+
+            // Ordering mode descriptions
+            if (currentMode == 0)
+            { // Particle ordering
+                ImGui::TextWrapped("Particle Ordering: Bodies are sorted according to their position along a Space-Filling Curve.");
+            }
+            else
+            { // Octant ordering
+                ImGui::TextWrapped("Octant Ordering: Tree nodes are arranged according to a Space-Filling Curve.");
+            }
+        }
+
+        // Reorder Frequency Slider
+        int reorderFreq = simulationState_.reorderFrequency.load();
+        if (ImGui::SliderInt("Reorder Frequency", &reorderFreq, 1, 100, "Every %d iterations"))
+        {
+            simulationState_.reorderFrequency.store(reorderFreq);
+        }
+        ImGui::TextWrapped("How often to recalculate the space-filling curve ordering.");
+
+        // Performance metrics specific to SFC
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "SFC Performance Impact");
+
+        // In a real implementation, you'd track these metrics in simulation_state
+        float memorySavings = 0.0f;      // Percent memory bandwidth saved
+        float cacheMissReduction = 0.0f; // Percent cache miss reduction
+
+        ImGui::Text("Memory bandwidth saved: %.1f%%", memorySavings);
+        ImGui::Text("Cache miss reduction: %.1f%%", cacheMissReduction);
+
+        ImGui::TextWrapped("Note: These metrics would need to be measured in the simulation for accurate reporting.");
     }
     else
     {

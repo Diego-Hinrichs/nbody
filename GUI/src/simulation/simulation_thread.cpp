@@ -1,5 +1,6 @@
 #include "../../include/simulation/simulation_thread.hpp"
 #include <iostream>
+#include <cstring>
 #include <stdexcept>
 
 SimulationThread::SimulationThread(SimulationState *simulationState)

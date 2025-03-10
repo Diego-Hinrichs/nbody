@@ -5,11 +5,12 @@ SimulationState::SimulationState() : running(true),
                                      restart(false),
                                      isPaused(false),
                                      simulationMethod(SimulationMethod::CPU_BARNES_HUT), // Default to Barnes-Hut
-                                     useOpenMP(true),                                // Enable OpenMP by default
-                                     openMPThreads(omp_get_max_threads()),           // Use all available cores by default
+                                     useOpenMP(true),                                    // Enable OpenMP by default
+                                     openMPThreads(omp_get_max_threads()),               // Use all available cores by default
                                      useSFC(false),
                                      sfcOrderingMode(SFCOrderingMode::PARTICLES),
-                                     reorderFrequency(10), // Reorder every 10 iterations by default
+                                     reorderFrequency(10),                 // Reorder every 10 iterations by default
+                                     sfcCurveType(sfc::CurveType::MORTON), // Default to Morton curve
                                      bodyDistribution(BodyDistribution::SOLAR_SYSTEM),
                                      randomSeed(static_cast<unsigned int>(time(nullptr))),
                                      seedWasChanged(false),
