@@ -48,6 +48,8 @@ protected:
      */
     void computeForces();
 
+    void swapBodyBuffers();
+
 public:
     /**
      * @brief Constructor

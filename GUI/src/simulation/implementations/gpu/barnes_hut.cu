@@ -113,6 +113,13 @@ void BarnesHut::computeForces()
     CHECK_LAST_CUDA_ERROR();
 }
 
+void BarnesHut::swapBodyBuffers()
+{
+    Body *temp = d_bodies;
+    d_bodies = d_tempBodies;
+    d_tempBodies = temp;
+}
+
 void BarnesHut::update()
 {
     // Ensure initialization
@@ -125,5 +132,9 @@ void BarnesHut::update()
     resetOctree();
     computeBoundingBox();
     constructOctree();
+
+    // *** Add this line to use the ordered bodies ***
+    swapBodyBuffers();
+
     computeForces();
 }

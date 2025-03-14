@@ -1,5 +1,6 @@
 #include "../../include/common/types.cuh"
 #include "../../include/common/constants.cuh"
+#include <stdio.h>
 
 // Constantes del dispositivo para la cola de trabajo
 constexpr int MAX_JOBS = 100000; // Ajustar según la profundidad máxima esperada del árbol
@@ -364,160 +365,6 @@ __device__ void EnqueueChildNodes(int nodeIndex, int *jobQueue, int *jobCount, i
 }
 
 /**
- * @brief Kernel optimizado para la construcción de árboles octales
- *
- * Implementa un enfoque persistente basado en cola para eliminar recursividad.
- * Los bloques de CUDA obtienen trabajo de una cola global.
- */
-__global__ void OptimizedConstructOctTreeKernel(
-    Node *nodes, Body *bodies, Body *buffer,
-    int *orderedIndices, bool useSFC,
-    int *jobQueue, int *jobCount, int initJobCount,
-    int nNodes, int nBodies, int leafLimit)
-{
-    __shared__ int count[8];
-    __shared__ double totalMass[BLOCK_SIZE];
-    __shared__ double3 centerMass[BLOCK_SIZE];
-    __shared__ int baseOffset[8];
-    __shared__ int workOffset[8];
-    __shared__ int nodeIndex;
-    __shared__ bool isValidNode;
-
-    int tx = threadIdx.x;
-
-    // Inicializar el contador de trabajos si es el primer bloque y primer hilo
-    if (blockIdx.x == 0 && tx == 0)
-    {
-        *jobCount = initJobCount;
-    }
-
-    __syncthreads();
-
-    // Los bloques obtienen trabajo continuamente de la cola
-    while (true)
-    {
-        // El primer hilo de cada bloque obtiene un trabajo de la cola
-        if (tx == 0)
-        {
-            nodeIndex = QUEUE_EMPTY;
-            isValidNode = false;
-
-            int currentJobCount = *jobCount;
-            if (currentJobCount > 0)
-            {
-                // Obtener trabajo con decremento atómico
-                int jobId = atomicAdd(jobCount, -1) - 1;
-                if (jobId >= 0 && jobId < MAX_JOBS)
-                {
-                    nodeIndex = jobQueue[jobId];
-                    isValidNode = (nodeIndex < nNodes);
-                }
-            }
-        }
-
-        __syncthreads();
-
-        // Si no hay más trabajo, salir
-        if (nodeIndex == QUEUE_EMPTY || !isValidNode)
-        {
-            return;
-        }
-
-        // Obtener el nodo actual
-        Node curNode = nodes[nodeIndex];
-        int start = curNode.start;
-        int end = curNode.end;
-
-        // Saltar nodos vacíos
-        if (start == -1 && end == -1)
-        {
-            continue;
-        }
-
-        Vector topLeftFront = curNode.topLeftFront;
-        Vector botRightBack = curNode.botRightBack;
-
-        // Calcular centro de masa para el nodo actual
-        ComputeCenterMass(curNode, bodies, orderedIndices, useSFC,
-                          totalMass, centerMass, start, end);
-
-        // Verificar si hemos alcanzado el límite de recursión o tenemos solo un cuerpo
-        if (nodeIndex >= leafLimit || start == end)
-        {
-            // Copiar cuerpos con patrones coalescentes
-            int step = blockDim.x;
-            for (int i = start + tx; i <= end; i += step)
-            {
-                if (i <= end)
-                {
-                    buffer[i] = bodies[i];
-                }
-            }
-
-            // No encolamos más trabajo para nodos hoja
-            continue;
-        }
-
-        // Paso 1: Contar cuerpos en cada octante
-        CountBodies(bodies, orderedIndices, useSFC, topLeftFront, botRightBack, count, start, end);
-
-        // Paso 2: Calcular desplazamientos base para cada octante
-        ComputeOffset(count, baseOffset, start);
-
-        // Copiar desplazamientos a arrays locales para agrupación
-        if (tx < 8)
-        {
-            workOffset[tx] = baseOffset[tx];
-        }
-        __syncthreads();
-
-        // Paso 3: Agrupar cuerpos por octante
-        GroupBodies(bodies, buffer, topLeftFront, botRightBack, workOffset, start, end);
-
-        // Paso 4: Asignar rangos a nodos hijos (solo el hilo 0)
-        if (tx == 0)
-        {
-            // Marcar nodo actual como no-hoja
-            nodes[nodeIndex].isLeaf = false;
-
-            // Para cada octante, configurar el nodo hijo
-            for (int i = 0; i < 8; i++)
-            {
-                int childIdx = nodeIndex * 8 + (i + 1);
-                if (childIdx < nNodes)
-                {
-                    Node &childNode = nodes[childIdx];
-
-                    // Establecer cuadro delimitador del nodo hijo
-                    UpdateChildBound(topLeftFront, botRightBack, childNode, i + 1);
-
-                    // Asignar rango de cuerpos si este octante tiene cuerpos
-                    if (count[i] > 0)
-                    {
-                        childNode.start = baseOffset[i];
-                        childNode.end = baseOffset[i] + count[i] - 1;
-
-                        // Encolar nodo hijo para procesamiento
-                        int jobId = atomicAdd(jobCount, 1);
-                        if (jobId < MAX_JOBS)
-                        {
-                            jobQueue[jobId] = childIdx;
-                        }
-                    }
-                    else
-                    {
-                        childNode.start = -1;
-                        childNode.end = -1;
-                    }
-                }
-            }
-        }
-
-        __syncthreads();
-    }
-}
-
-/**
  * @brief CUDA kernel for octree construction with octant ordering
  *
  * This kernel is similar to OptimizedConstructOctTreeKernel but has additional
@@ -530,17 +377,24 @@ __global__ void OptimizedConstructOctTreeKernelWithOctantOrder(
     int *jobQueue, int *jobCount, int initJobCount,
     int nNodes, int nBodies, int leafLimit)
 {
-    __shared__ int count[8];
-    __shared__ double totalMass[BLOCK_SIZE];
-    __shared__ double3 centerMass[BLOCK_SIZE];
-    __shared__ int baseOffset[8];
-    __shared__ int workOffset[8];
-    __shared__ int nodeIndex;
-    __shared__ bool isValidNode;
+    // Block shared memory - properly sized and bounded
+    __shared__ int count[8];      // Bodies per octant
+    __shared__ int baseOffset[8]; // Starting offset for each octant
+    __shared__ int workOffset[8]; // Current work offset
+    __shared__ int nodeIndex;     // Current node index
+    __shared__ bool isValidNode;  // Node validity flag
+
+    // Dynamically sized shared memory for mass calculation
+    // Use fixed size to avoid issues with block sizes
+    extern __shared__ double sharedMem[];
+
+    // Split shared memory for total mass and center of mass
+    double *totalMass = sharedMem;
+    double3 *centerMass = (double3 *)&sharedMem[blockDim.x];
 
     int tx = threadIdx.x;
 
-    // Initialize job counter for the first block
+    // Initialize job count for the first block
     if (blockIdx.x == 0 && tx == 0)
     {
         *jobCount = initJobCount;
@@ -548,13 +402,20 @@ __global__ void OptimizedConstructOctTreeKernelWithOctantOrder(
 
     __syncthreads();
 
+    // Initialize totalMass and centerMass for this thread
+    if (tx < blockDim.x)
+    {
+        totalMass[tx] = 0.0;
+        centerMass[tx] = make_double3(0.0, 0.0, 0.0);
+    }
+
     // Blocks continuously fetch work from the queue
     while (true)
     {
         // First thread in each block gets a job from the queue
         if (tx == 0)
         {
-            nodeIndex = QUEUE_EMPTY;
+            nodeIndex = -1; // No work by default
             isValidNode = false;
 
             int currentJobCount = *jobCount;
@@ -562,7 +423,7 @@ __global__ void OptimizedConstructOctTreeKernelWithOctantOrder(
             {
                 // Get job with atomic decrement
                 int jobId = atomicAdd(jobCount, -1) - 1;
-                if (jobId >= 0 && jobId < MAX_JOBS)
+                if (jobId >= 0)
                 {
                     nodeIndex = jobQueue[jobId];
                     isValidNode = (nodeIndex < nNodes);
@@ -573,124 +434,398 @@ __global__ void OptimizedConstructOctTreeKernelWithOctantOrder(
         __syncthreads();
 
         // Exit if no more work
-        if (nodeIndex == QUEUE_EMPTY || !isValidNode)
+        if (nodeIndex < 0 || !isValidNode)
         {
             return;
         }
 
         // Get the current node
         Node curNode = nodes[nodeIndex];
-        int start = curNode.start;
-        int end = curNode.end;
 
         // Skip empty nodes
-        if (start == -1 && end == -1)
+        if (curNode.start == -1 && curNode.end == -1)
         {
             continue;
         }
 
         Vector topLeftFront = curNode.topLeftFront;
         Vector botRightBack = curNode.botRightBack;
+        int start = curNode.start;
+        int end = curNode.end;
 
-        // Calculate center of mass for the current node
-        ComputeCenterMass(curNode, bodies, orderedIndices, useSFC,
-                          totalMass, centerMass, start, end);
-
-        // Check if we've reached the recursion limit or have only one body
-        if (nodeIndex >= leafLimit || start == end)
+        // Compute center of mass for this node
+        // Reset shared memory for calculation
+        if (tx < blockDim.x)
         {
-            // Copy bodies with coalesced patterns
-            int step = blockDim.x;
-            for (int i = start + tx; i <= end; i += step)
+            totalMass[tx] = 0.0;
+            centerMass[tx] = make_double3(0.0, 0.0, 0.0);
+        }
+
+        __syncthreads();
+
+        // Parallel center of mass calculation with improved memory access
+        if (useSFC && orderedIndices)
+        {
+            // Process a range of bodies per thread
+            int numBodiesInNode = end - start + 1;
+            int bodiesPerThread = (numBodiesInNode + blockDim.x - 1) / blockDim.x;
+            int myStart = start + tx * bodiesPerThread;
+            int myEnd = min(myStart + bodiesPerThread - 1, end);
+
+            double myTotalMass = 0.0;
+            double3 myCenterMass = make_double3(0.0, 0.0, 0.0);
+
+            for (int idx = myStart; idx <= myEnd; idx++)
             {
-                if (i <= end)
-                {
-                    buffer[i] = bodies[i];
+                if (idx <= end)
+                { // Ensure we don't go out of bounds
+                    int bodyIndex = orderedIndices[idx];
+                    Body body = bodies[bodyIndex];
+
+                    myTotalMass += body.mass;
+                    myCenterMass.x += body.mass * body.position.x;
+                    myCenterMass.y += body.mass * body.position.y;
+                    myCenterMass.z += body.mass * body.position.z;
                 }
             }
 
-            // Don't enqueue more work for leaf nodes
-            continue;
+            // Store thread results - make sure we're in bounds
+            if (tx < blockDim.x)
+            {
+                totalMass[tx] = myTotalMass;
+                centerMass[tx] = myCenterMass;
+            }
         }
-
-        // Step 1: Count bodies in each octant
-        CountBodies(bodies, orderedIndices, useSFC, topLeftFront, botRightBack, count, start, end);
-
-        // Step 2: Compute base offsets for each octant
-        ComputeOffset(count, baseOffset, start);
-
-        // Copy offsets to working arrays for grouping
-        if (tx < 8)
+        else
         {
-            workOffset[tx] = baseOffset[tx];
+            // Without SFC ordering
+            int numBodiesInNode = end - start + 1;
+            int bodiesPerThread = (numBodiesInNode + blockDim.x - 1) / blockDim.x;
+            int myStart = start + tx * bodiesPerThread;
+            int myEnd = min(myStart + bodiesPerThread - 1, end);
+
+            double myTotalMass = 0.0;
+            double3 myCenterMass = make_double3(0.0, 0.0, 0.0);
+
+            for (int idx = myStart; idx <= myEnd; idx++)
+            {
+                if (idx <= end)
+                { // Ensure we don't go out of bounds
+                    Body body = bodies[idx];
+
+                    myTotalMass += body.mass;
+                    myCenterMass.x += body.mass * body.position.x;
+                    myCenterMass.y += body.mass * body.position.y;
+                    myCenterMass.z += body.mass * body.position.z;
+                }
+            }
+
+            // Store thread results - make sure we're in bounds
+            if (tx < blockDim.x)
+            {
+                totalMass[tx] = myTotalMass;
+                centerMass[tx] = myCenterMass;
+            }
         }
+
+        // Parallel reduction - only use threads within blockDim.x
+        for (uint s = blockDim.x / 2; s > 32; s >>= 1)
+        {
+            __syncthreads();
+            if (tx < s && tx + s < blockDim.x)
+            {
+                totalMass[tx] += totalMass[tx + s];
+                centerMass[tx].x += centerMass[tx + s].x;
+                centerMass[tx].y += centerMass[tx + s].y;
+                centerMass[tx].z += centerMass[tx + s].z;
+            }
+        }
+
         __syncthreads();
 
-        // Step 3: Group bodies by octant
-        GroupBodies(bodies, buffer, topLeftFront, botRightBack, workOffset, start, end);
+        // Warp-level reduction (no sync needed within a warp) - prevent out-of-bounds access
+        if (tx < 32)
+        {
+            // Only perform reduction if both indices are in range
+            if (tx + 32 < blockDim.x)
+            {
+                totalMass[tx] += totalMass[tx + 32];
+                centerMass[tx].x += centerMass[tx + 32].x;
+                centerMass[tx].y += centerMass[tx + 32].y;
+                centerMass[tx].z += centerMass[tx + 32].z;
+            }
 
-        // Step 4: Assign ranges to child nodes (only thread 0)
+            // 16 -> 8
+            if (tx + 16 < blockDim.x && tx < 16)
+            {
+                totalMass[tx] += totalMass[tx + 16];
+                centerMass[tx].x += centerMass[tx + 16].x;
+                centerMass[tx].y += centerMass[tx + 16].y;
+                centerMass[tx].z += centerMass[tx + 16].z;
+            }
+
+            // 8 -> 4
+            if (tx + 8 < blockDim.x && tx < 8)
+            {
+                totalMass[tx] += totalMass[tx + 8];
+                centerMass[tx].x += centerMass[tx + 8].x;
+                centerMass[tx].y += centerMass[tx + 8].y;
+                centerMass[tx].z += centerMass[tx + 8].z;
+            }
+
+            // 4 -> 2
+            if (tx + 4 < blockDim.x && tx < 4)
+            {
+                totalMass[tx] += totalMass[tx + 4];
+                centerMass[tx].x += centerMass[tx + 4].x;
+                centerMass[tx].y += centerMass[tx + 4].y;
+                centerMass[tx].z += centerMass[tx + 4].z;
+            }
+
+            // 2 -> 1
+            if (tx + 2 < blockDim.x && tx < 2)
+            {
+                totalMass[tx] += totalMass[tx + 2];
+                centerMass[tx].x += centerMass[tx + 2].x;
+                centerMass[tx].y += centerMass[tx + 2].y;
+                centerMass[tx].z += centerMass[tx + 2].z;
+            }
+
+            // 1 -> 0
+            if (tx + 1 < blockDim.x && tx < 1)
+            {
+                totalMass[tx] += totalMass[tx + 1];
+                centerMass[tx].x += centerMass[tx + 1].x;
+                centerMass[tx].y += centerMass[tx + 1].y;
+                centerMass[tx].z += centerMass[tx + 1].z;
+            }
+        }
+
+        __syncthreads();
+
+        // Update node's center of mass and total mass
         if (tx == 0)
         {
-            // Mark current node as non-leaf
-            nodes[nodeIndex].isLeaf = false;
+            double nodeTotalMass = totalMass[0];
+            double3 nodeCenterMass = centerMass[0];
 
-            // For each octant, set up the child node
-            for (int i = 0; i < 8; i++)
+            // Normalize center of mass
+            if (nodeTotalMass > 0.0)
             {
-                // Get child node index with octant ordering if enabled
-                int childOctant = i;
+                nodeCenterMass.x /= nodeTotalMass;
+                nodeCenterMass.y /= nodeTotalMass;
+                nodeCenterMass.z /= nodeTotalMass;
+            }
 
-                // If using octant ordering, remap the child indices
-                int childIdx;
-                if (useOctantOrder && octantIndices != nullptr)
+            // Update node data
+            nodes[nodeIndex].totalMass = nodeTotalMass;
+            nodes[nodeIndex].centerMass = Vector(nodeCenterMass.x, nodeCenterMass.y, nodeCenterMass.z);
+        }
+
+        // Check if we're at a leaf node or reached recursion limit
+        if (nodeIndex >= leafLimit || end - start <= 8 || end == start)
+        {
+            // Copy bodies for leaf nodes (vectorized copy)
+            for (int i = start + tx; i <= end; i += blockDim.x)
+            {
+                if (i <= end)
                 {
-                    // Calculate base child index
-                    childIdx = nodeIndex * 8 + (childOctant + 1);
-
-                    // If valid index, map through octant ordering
-                    if (childIdx < nNodes)
+                    if (useSFC && orderedIndices)
                     {
-                        // Find the ordered index for this child
-                        for (int j = 0; j < 8; j++)
-                        {
-                            int orderedChildIdx = octantIndices[nodeIndex * 8 + j + 1];
-                            if (orderedChildIdx == childIdx)
-                            {
-                                childOctant = j;
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                // Calculate the actual child index
-                childIdx = nodeIndex * 8 + (childOctant + 1);
-
-                if (childIdx < nNodes)
-                {
-                    Node &childNode = nodes[childIdx];
-
-                    // Set child node's bounding box
-                    UpdateChildBound(topLeftFront, botRightBack, childNode, childOctant + 1);
-
-                    // Assign body range if this octant has bodies
-                    if (count[childOctant] > 0)
-                    {
-                        childNode.start = baseOffset[childOctant];
-                        childNode.end = baseOffset[childOctant] + count[childOctant] - 1;
-
-                        // Enqueue child node for processing
-                        int jobId = atomicAdd(jobCount, 1);
-                        if (jobId < MAX_JOBS)
-                        {
-                            jobQueue[jobId] = childIdx;
-                        }
+                        int bodyIndex = orderedIndices[i];
+                        buffer[i] = bodies[bodyIndex];
                     }
                     else
                     {
-                        childNode.start = -1;
-                        childNode.end = -1;
+                        buffer[i] = bodies[i];
+                    }
+                }
+            }
+
+            continue; // Done with this node
+        }
+
+        // Initialize octant counters
+        if (tx < 8)
+        {
+            count[tx] = 0;
+        }
+
+        __syncthreads();
+
+        // Count bodies in each octant
+        if (useSFC && orderedIndices)
+        {
+            // Process bodies in parallel with SFC ordering
+            for (int i = start + tx; i <= end; i += blockDim.x)
+            {
+                if (i <= end)
+                {
+                    int bodyIndex = orderedIndices[i];
+                    Body body = bodies[bodyIndex];
+
+                    // Compute octant
+                    int octant = getOctant(topLeftFront, botRightBack,
+                                           body.position.x, body.position.y, body.position.z);
+
+                    // Ensure valid octant (1-8)
+                    if (octant >= 1 && octant <= 8)
+                    {
+                        // Increment counter atomically
+                        atomicAdd(&count[octant - 1], 1);
+                    }
+                }
+            }
+        }
+        else
+        {
+            // Process bodies in parallel without SFC
+            for (int i = start + tx; i <= end; i += blockDim.x)
+            {
+                if (i <= end)
+                {
+                    Body body = bodies[i];
+
+                    // Compute octant
+                    int octant = getOctant(topLeftFront, botRightBack,
+                                           body.position.x, body.position.y, body.position.z);
+
+                    // Ensure valid octant (1-8)
+                    if (octant >= 1 && octant <= 8)
+                    {
+                        // Increment counter atomically
+                        atomicAdd(&count[octant - 1], 1);
+                    }
+                }
+            }
+        }
+
+        __syncthreads();
+
+        // Compute base offsets for each octant
+        if (tx < 8)
+        {
+            int offset = start;
+            for (int i = 0; i < tx; i++)
+            {
+                offset += count[i];
+            }
+            baseOffset[tx] = offset;
+            workOffset[tx] = offset; // Initialize work offset
+        }
+
+        __syncthreads();
+
+        // Distribute bodies into octants
+        if (useSFC && orderedIndices)
+        {
+            // Group bodies using SFC ordering
+            for (int i = start + tx; i <= end; i += blockDim.x)
+            {
+                if (i <= end)
+                {
+                    int bodyIndex = orderedIndices[i];
+                    Body body = bodies[bodyIndex];
+
+                    // Compute octant
+                    int octant = getOctant(topLeftFront, botRightBack,
+                                           body.position.x, body.position.y, body.position.z);
+
+                    // Ensure valid octant
+                    if (octant >= 1 && octant <= 8)
+                    {
+                        // Get destination index
+                        int destIdx = atomicAdd(&workOffset[octant - 1], 1);
+
+                        // Make sure destIdx is valid
+                        if (destIdx >= start && destIdx <= end)
+                        {
+                            // Store body
+                            buffer[destIdx] = body;
+                        }
+                    }
+                }
+            }
+        }
+        else
+        {
+            // Group bodies without SFC ordering
+            for (int i = start + tx; i <= end; i += blockDim.x)
+            {
+                if (i <= end)
+                {
+                    Body body = bodies[i];
+
+                    // Compute octant
+                    int octant = getOctant(topLeftFront, botRightBack,
+                                           body.position.x, body.position.y, body.position.z);
+
+                    // Ensure valid octant
+                    if (octant >= 1 && octant <= 8)
+                    {
+                        // Get destination index
+                        int destIdx = atomicAdd(&workOffset[octant - 1], 1);
+
+                        // Make sure destIdx is valid
+                        if (destIdx >= start && destIdx <= end)
+                        {
+                            // Store body
+                            buffer[destIdx] = body;
+                        }
+                    }
+                }
+            }
+        }
+
+        __syncthreads();
+
+        // Thread 0 creates child nodes and adds them to the work queue
+        if (tx == 0)
+        {
+            // Mark current node as internal
+            nodes[nodeIndex].isLeaf = false;
+
+            // Create child nodes and add them to the work queue
+            for (int octant = 0; octant < 8; octant++)
+            {
+                if (count[octant] > 0)
+                {
+                    // Compute child index
+                    int childIdx;
+
+                    if (useOctantOrder && octantIndices)
+                    {
+                        // Use octant ordering
+                        childIdx = octantIndices[nodeIndex * 8 + octant + 1];
+                    }
+                    else
+                    {
+                        // Standard ordering
+                        childIdx = nodeIndex * 8 + octant + 1;
+                    }
+
+                    // Make sure index is valid
+                    if (childIdx < nNodes)
+                    {
+                        // Set child node properties
+                        Node &childNode = nodes[childIdx];
+
+                        // Update bounding box
+                        UpdateChildBound(topLeftFront, botRightBack, childNode, octant + 1);
+
+                        // Set body range
+                        childNode.start = baseOffset[octant];
+                        childNode.end = baseOffset[octant] + count[octant] - 1;
+
+                        // Add to work queue (if not a small leaf)
+                        if (childNode.end - childNode.start > 8)
+                        {
+                            int jobId = atomicAdd(jobCount, 1);
+                            if (jobId < MAX_JOBS)
+                            {
+                                jobQueue[jobId] = childIdx;
+                            }
+                        }
                     }
                 }
             }
@@ -739,10 +874,16 @@ extern "C" void BuildOptimizedOctTree(
     cudaMalloc(&d_jobCount, sizeof(int));
 
     // Initialize the queue with the root node
-    InitJobQueueKernel<<<1, 1>>>(d_jobQueue, d_jobCount);
+    int initJobCount = 1;
+    cudaMemcpy(d_jobCount, &initJobCount, sizeof(int), cudaMemcpyHostToDevice);
+    int rootIndex = 0;
+    cudaMemcpy(d_jobQueue, &rootIndex, sizeof(int), cudaMemcpyHostToDevice);
 
     // Calculate launch configuration
-    int blockSize = BLOCK_SIZE;
+    int blockSize = 256; // Use smaller block size for better occupancy
+
+    // Compute shared memory size for double (totalMass) and double3 (centerMass)
+    size_t sharedMemSize = blockSize * sizeof(double) + blockSize * sizeof(double3);
 
     // Get number of multiprocessors
     int deviceId;
@@ -754,25 +895,22 @@ extern "C" void BuildOptimizedOctTree(
     // Launch approximately 2 blocks per SM for good occupancy
     int numBlocks = numSMs * 2;
 
-    // Launch the appropriate kernel based on ordering mode
-    if (useOctantOrder && octantIndices != nullptr)
+    // Launch the fixed kernel with proper shared memory size
+    OptimizedConstructOctTreeKernelWithOctantOrder<<<numBlocks, blockSize, sharedMemSize>>>(
+        d_nodes, d_bodies, d_tempBodies,
+        orderedIndices, useSFC,
+        octantIndices, useOctantOrder,
+        d_jobQueue, d_jobCount, 1,
+        nNodes, nBodies, leafLimit);
+
+    // Synchronize to ensure completion
+    cudaDeviceSynchronize();
+
+    // Check for any CUDA errors
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess)
     {
-        // Use the octant ordering kernel
-        OptimizedConstructOctTreeKernelWithOctantOrder<<<numBlocks, blockSize>>>(
-            d_nodes, d_bodies, d_tempBodies,
-            orderedIndices, useSFC,
-            octantIndices, true,
-            d_jobQueue, d_jobCount, 1,
-            nNodes, nBodies, leafLimit);
-    }
-    else
-    {
-        // Use the standard kernel with particle ordering only
-        OptimizedConstructOctTreeKernel<<<numBlocks, blockSize>>>(
-            d_nodes, d_bodies, d_tempBodies,
-            orderedIndices, useSFC,
-            d_jobQueue, d_jobCount, 1,
-            nNodes, nBodies, leafLimit);
+        printf("CUDA Error: %s\n", cudaGetErrorString(err));
     }
 
     // Free resources

@@ -1,0 +1,145 @@
+========= COMPUTE-SANITIZER
+Attempting to use dedicated GPU...
+[INFO] OpenGL Version: 4.5 (Core Profile) Mesa 23.2.1-1ubuntu3.1~22.04.3
+[INFO] GLSL Version: 4.50
+[INFO] Renderer: llvmpipe (LLVM 15.0.7, 256 bits)
+Max Vertex Attributes: 16
+Max Texture Units: 8
+Max Texture Size: 16384
+OpenGL Renderer initialized successfully
+Shader program ID: 3
+CPU Barnes-Hut Simulation created with 1024 bodies.
+OpenMP enabled with 16 threads.
+========= Invalid __global__ write of size 4 bytes
+=========     at OptimizedConstructOctTreeKernelWithOctantOrder(Node *, Body *, Body *, int *, bool, int *, bool, int *, int *, int, int, int, int)+0x4900
+=========     by thread (0,0,0) in block (24,0,0)
+=========     Address 0x7087fffac is out of bounds
+=========     and is 84 bytes before the nearest allocation at 0x708800000 of size 400000 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========     Host Frame: [0x22f5d7]
+=========                in /usr/lib/wsl/drivers/nvmdi.inf_amd64_fe5a9cae5c641286/libcuda.so.1.1
+=========     Host Frame: [0x15aa7]
+=========                in /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcudart.so.12
+=========     Host Frame:cudaLaunchKernel [0x759f0]
+=========                in /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcudart.so.12
+=========     Host Frame:BuildOptimizedOctTree [0x1907e]
+=========                in /home/diegoh/tesis/Finales/N-Body/GUI/./build/BarnesHutSimulation
+=========     Host Frame:BarnesHut::constructOctree() [0x40939]
+=========                in /home/diegoh/tesis/Finales/N-Body/GUI/./build/BarnesHutSimulation
+=========     Host Frame:BarnesHut::update() [0x416c7]
+=========                in /home/diegoh/tesis/Finales/N-Body/GUI/./build/BarnesHutSimulation
+=========     Host Frame:simulationThread(SimulationState*) [0x167e5]
+=========                in /home/diegoh/tesis/Finales/N-Body/GUI/./build/BarnesHutSimulation
+=========     Host Frame: [0xdc252]
+=========                in /lib/x86_64-linux-gnu/libstdc++.so.6
+=========     Host Frame: [0x94ac2]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+=========     Host Frame: [0x12684f]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+========= 
+========= Program hit cudaErrorUnknown (error 999) due to "unknown error" on CUDA API call to cudaDeviceSynchronize.
+=========     Saved host backtrace up to driver entry point at error
+=========     Host Frame: [0x4134d2]
+=========                in /usr/lib/wsl/drivers/nvmdi.inf_amd64_fe5a9cae5c641286/libcuda.so.1.1
+=========     Host Frame:cudaDeviceSynchronize [0x4af09]
+=========                in /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcudart.so.12
+=========     Host Frame:BuildOptimizedOctTree [0x19085]
+=========                in /home/diegoh/tesis/Finales/N-Body/GUI/./build/BarnesHutSimulation
+=========     Host Frame:BarnesHut::constructOctree() [0x40939]
+=========                in /home/diegoh/tesis/Finales/N-Body/GUI/./build/BarnesHutSimulation
+=========     Host Frame:BarnesHut::update() [0x416c7]
+=========                in /home/diegoh/tesis/Finales/N-Body/GUI/./build/BarnesHutSimulation
+=========     Host Frame:simulationThread(SimulationState*) [0x167e5]
+=========                in /home/diegoh/tesis/Finales/N-Body/GUI/./build/BarnesHutSimulation
+=========     Host Frame: [0xdc252]
+=========                in /lib/x86_64-linux-gnu/libstdc++.so.6
+=========     Host Frame: [0x94ac2]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+=========     Host Frame: [0x12684f]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+========= 
+========= Program hit cudaErrorUnknown (error 999) due to "unknown error" on CUDA API call to cudaGetLastError.
+=========     Saved host backtrace up to driver entry point at error
+=========     Host Frame: [0x4134d2]
+=========                in /usr/lib/wsl/drivers/nvmdi.inf_amd64_fe5a9cae5c641286/libcuda.so.1.1
+=========     Host Frame:cudaGetLastError [0x4dd26]
+=========                in /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcudart.so.12
+=========     Host Frame:BuildOptimizedOctTree [0x1908a]
+=========                in /home/diegoh/tesis/Finales/N-Body/GUI/./build/BarnesHutSimulation
+=========     Host Frame:BarnesHut::constructOctree() [0x40939]
+=========                in /home/diegoh/tesis/Finales/N-Body/GUI/./build/BarnesHutSimulation
+=========     Host Frame:BarnesHut::update() [0x416c7]
+=========                in /home/diegoh/tesis/Finales/N-Body/GUI/./build/BarnesHutSimulation
+=========     Host Frame:simulationThread(SimulationState*) [0x167e5]
+=========                in /home/diegoh/tesis/Finales/N-Body/GUI/./build/BarnesHutSimulation
+=========     Host Frame: [0xdc252]
+=========                in /lib/x86_64-linux-gnu/libstdc++.so.6
+=========     Host Frame: [0x94ac2]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+=========     Host Frame: [0x12684f]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+========= 
+========= Program hit cudaErrorUnknown (error 999) due to "unknown error" on CUDA API call to cudaFree.
+=========     Saved host backtrace up to driver entry point at error
+=========     Host Frame: [0x4134d2]
+=========                in /usr/lib/wsl/drivers/nvmdi.inf_amd64_fe5a9cae5c641286/libcuda.so.1.1
+=========     Host Frame:cudaFree [0x57bcd]
+=========                in /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcudart.so.12
+=========     Host Frame:BuildOptimizedOctTree [0x18ef7]
+=========                in /home/diegoh/tesis/Finales/N-Body/GUI/./build/BarnesHutSimulation
+=========     Host Frame:BarnesHut::constructOctree() [0x40939]
+=========                in /home/diegoh/tesis/Finales/N-Body/GUI/./build/BarnesHutSimulation
+=========     Host Frame:BarnesHut::update() [0x416c7]
+=========                in /home/diegoh/tesis/Finales/N-Body/GUI/./build/BarnesHutSimulation
+=========     Host Frame:simulationThread(SimulationState*) [0x167e5]
+=========                in /home/diegoh/tesis/Finales/N-Body/GUI/./build/BarnesHutSimulation
+=========     Host Frame: [0xdc252]
+=========                in /lib/x86_64-linux-gnu/libstdc++.so.6
+=========     Host Frame: [0x94ac2]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+=========     Host Frame: [0x12684f]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+========= 
+========= Program hit cudaErrorUnknown (error 999) due to "unknown error" on CUDA API call to cudaFree.
+=========     Saved host backtrace up to driver entry point at error
+=========     Host Frame: [0x4134d2]
+=========                in /usr/lib/wsl/drivers/nvmdi.inf_amd64_fe5a9cae5c641286/libcuda.so.1.1
+=========     Host Frame:cudaFree [0x57bcd]
+=========                in /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcudart.so.12
+=========     Host Frame:BuildOptimizedOctTree [0x18f03]
+=========                in /home/diegoh/tesis/Finales/N-Body/GUI/./build/BarnesHutSimulation
+=========     Host Frame:BarnesHut::constructOctree() [0x40939]
+=========                in /home/diegoh/tesis/Finales/N-Body/GUI/./build/BarnesHutSimulation
+=========     Host Frame:BarnesHut::update() [0x416c7]
+=========                in /home/diegoh/tesis/Finales/N-Body/GUI/./build/BarnesHutSimulation
+=========     Host Frame:simulationThread(SimulationState*) [0x167e5]
+=========                in /home/diegoh/tesis/Finales/N-Body/GUI/./build/BarnesHutSimulation
+=========     Host Frame: [0xdc252]
+=========                in /lib/x86_64-linux-gnu/libstdc++.so.6
+=========     Host Frame: [0x94ac2]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+=========     Host Frame: [0x12684f]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+========= 
+========= Program hit cudaErrorUnknown (error 999) due to "unknown error" on CUDA API call to cudaGetLastError.
+=========     Saved host backtrace up to driver entry point at error
+=========     Host Frame: [0x4134d2]
+=========                in /usr/lib/wsl/drivers/nvmdi.inf_amd64_fe5a9cae5c641286/libcuda.so.1.1
+=========     Host Frame:cudaGetLastError [0x4dd26]
+=========                in /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcudart.so.12
+=========     Host Frame:BarnesHut::constructOctree() [0x40942]
+=========                in /home/diegoh/tesis/Finales/N-Body/GUI/./build/BarnesHutSimulation
+=========     Host Frame:BarnesHut::update() [0x416c7]
+=========                in /home/diegoh/tesis/Finales/N-Body/GUI/./build/BarnesHutSimulation
+=========     Host Frame:simulationThread(SimulationState*) [0x167e5]
+=========                in /home/diegoh/tesis/Finales/N-Body/GUI/./build/BarnesHutSimulation
+=========     Host Frame: [0xdc252]
+=========                in /lib/x86_64-linux-gnu/libstdc++.so.6
+=========     Host Frame: [0x94ac2]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+=========     Host Frame: [0x12684f]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+========= 
+CUDA Error: unknown error
+========= Target application returned an error
+========= ERROR SUMMARY: 6 errors

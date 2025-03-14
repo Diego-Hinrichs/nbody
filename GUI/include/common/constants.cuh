@@ -11,10 +11,10 @@ namespace SimulationConstants
 
     // Physical constants
     constexpr double GRAVITY = 6.67430e-11;        // Gravitational constant
-    constexpr double SOFTENING_FACTOR = 0.5;       // Softening factor for avoiding div by 0
-    constexpr double TIME_STEP = 25000.0;          // Time step in seconds
-    constexpr double THETA = 0.5;                  // Multipole acceptance criterion
     constexpr double COLLISION_THRESHOLD = 1.0e10; // Collision threshold distance
+    constexpr double THETA = 0.5;                  // Multipole acceptance criterion
+    constexpr double TIME_STEP = 25000.0;          // Time step in seconds
+    constexpr double SOFTENING_FACTOR = 0.5;       // Softening factor for avoiding div by 0
 
     // Simulation constants
     constexpr int BLOCK_SIZE = 1024;  // CUDA block size

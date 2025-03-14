@@ -2,19 +2,24 @@
 #include "../../include/common/constants.cuh"
 
 /**
- * @brief Compute the bounding box for the entire simulation domain
+ * @brief CUDA kernel to compute the bounding box for a set of bodies.
  *
- * This kernel uses a parallel reduction approach to find the minimum and
- * maximum coordinates of all bodies, defining the simulation domain.
+ * This kernel calculates the bounding box for a given set of bodies, which
+ * are represented by nodes and bodies arrays. The bounding box is used to
+ * determine the spatial extent of the bodies in the simulation.
  *
- * @param nodes Array of octree nodes (only updates the root node)
- * @param bodies Array of bodies
- * @param mutex Mutex for synchronization
- * @param nBodies Number of bodies in the simulation
+ * @param nodes Pointer to the array of nodes representing the bounding box.
+ * @param bodies Pointer to the array of bodies in the simulation.
+ * @param orderedIndices Pointer to the array of ordered indices for the bodies.
+ * @param useSFC Boolean flag indicating whether to use Space-Filling Curve (SFC) for ordering.
+ * @param mutex Pointer to the mutex used for synchronization.
+ * @param nBodies The number of bodies in the simulation.
  */
-__global__ void ComputeBoundingBoxKernel(Node *nodes, Body *bodies, int *mutex, int nBodies)
+__global__ void ComputeBoundingBoxKernel(
+    Node *nodes, Body *bodies, int *orderedIndices, bool useSFC,
+    int *mutex, int nBodies)
 {
-    // Shared memory for parallel reduction of each dimension
+    // Shared memory para la reducción paralela
     __shared__ double topLeftFrontX[BLOCK_SIZE];
     __shared__ double topLeftFrontY[BLOCK_SIZE];
     __shared__ double topLeftFrontZ[BLOCK_SIZE];
@@ -25,20 +30,23 @@ __global__ void ComputeBoundingBoxKernel(Node *nodes, Body *bodies, int *mutex, 
     int tx = threadIdx.x;
     int b = blockIdx.x * blockDim.x + tx;
 
-    // Initialize with extreme values
-    topLeftFrontX[tx] = INFINITY;  // Min X
-    topLeftFrontY[tx] = INFINITY;  // Min Y
-    topLeftFrontZ[tx] = INFINITY;  // Min Z
-    botRightBackX[tx] = -INFINITY; // Max X
-    botRightBackY[tx] = -INFINITY; // Max Y
-    botRightBackZ[tx] = -INFINITY; // Max Z
+    // Inicializar con valores extremos
+    topLeftFrontX[tx] = INFINITY;
+    topLeftFrontY[tx] = INFINITY;
+    topLeftFrontZ[tx] = INFINITY;
+    botRightBackX[tx] = -INFINITY;
+    botRightBackY[tx] = -INFINITY;
+    botRightBackZ[tx] = -INFINITY;
 
     __syncthreads();
 
-    // Load body data if within range
+    // Cargar datos de cuerpos con o sin SFC
     if (b < nBodies)
     {
-        Body body = bodies[b];
+        // Obtener el índice correcto dependiendo si usamos SFC o no
+        int bodyIndex = (useSFC && orderedIndices != nullptr) ? orderedIndices[b] : b;
+
+        Body body = bodies[bodyIndex];
         topLeftFrontX[tx] = body.position.x;
         topLeftFrontY[tx] = body.position.y;
         topLeftFrontZ[tx] = body.position.z;
@@ -48,7 +56,7 @@ __global__ void ComputeBoundingBoxKernel(Node *nodes, Body *bodies, int *mutex, 
         botRightBackZ[tx] = body.position.z;
     }
 
-    // Parallel reduction to find min/max values
+    // Reducción paralela para encontrar min/max valores
     for (int s = blockDim.x / 2; s > 0; s >>= 1)
     {
         __syncthreads();
@@ -66,7 +74,7 @@ __global__ void ComputeBoundingBoxKernel(Node *nodes, Body *bodies, int *mutex, 
         }
     }
 
-    // Update root node with mutex to avoid race conditions
+    // Actualizar root node con mutex para evitar race conditions
     if (tx == 0)
     {
         // Wait until mutex is available
