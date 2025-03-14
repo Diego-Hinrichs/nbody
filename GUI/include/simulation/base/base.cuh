@@ -9,30 +9,19 @@
 #include <vector>
 #include <memory>
 
-extern "C" void BuildOptimizedOctTree(
-    Node *d_nodes, Body *d_bodies, Body *d_tempBodies,
-    int *orderedIndices, bool useSFC,
-    int *octantIndices, bool useOctantOrder,
-    int nNodes, int nBodies, int leafLimit);
-
 __global__ void ResetKernel(
     Node *nodes, int *mutex, int nNodes, int nBodies);
 
 __global__ void ComputeBoundingBoxKernel(
-    Node *nodes, Body *bodies, int *orderedIndices, bool useSFC,
-    int *mutex, int nBodies);
-
-__global__ void OptimizedConstructOctTreeKernelWithOctantOrder(
-    Node *nodes, Body *bodies, Body *buffer,
-    int *orderedIndices, bool useSFC,
-    int *octantIndices, bool useOctantOrder,
-    int *jobQueue, int *jobCount, int initJobCount,
-    int nNodes, int nBodies, int leafLimit);
+    Node *nodes, Body *bodies, int *mutex, int nBodies);
 
 __global__ void ComputeForceKernel(
-    Node *nodes, Body *bodies, int *orderedIndices, bool useSFC,
-    int nNodes, int nBodies, int leafLimit);
+    Node *node, Body *bodies, int nNodes, int nBodies, int leafLimit);
 
+__global__ void ConstructOctTreeKernel(
+    Node *node, Body *bodies, Body *buffer, int nodeIndex,
+    int nNodes, int nBodies, int leafLimit);
+    
 /**
  * @brief Base class for N-body simulations
  *

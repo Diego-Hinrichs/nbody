@@ -15,11 +15,9 @@
  * @param mutex Pointer to the mutex used for synchronization.
  * @param nBodies The number of bodies in the simulation.
  */
-__global__ void ComputeBoundingBoxKernel(
-    Node *nodes, Body *bodies, int *orderedIndices, bool useSFC,
-    int *mutex, int nBodies)
+__global__ void ComputeBoundingBoxKernel(Node *node, Body *bodies, int *mutex, int nBodies)
 {
-    // Shared memory para la reducción paralela
+    // Memoria compartida para cada dimensión
     __shared__ double topLeftFrontX[BLOCK_SIZE];
     __shared__ double topLeftFrontY[BLOCK_SIZE];
     __shared__ double topLeftFrontZ[BLOCK_SIZE];
@@ -30,23 +28,21 @@ __global__ void ComputeBoundingBoxKernel(
     int tx = threadIdx.x;
     int b = blockIdx.x * blockDim.x + tx;
 
-    // Inicializar con valores extremos
-    topLeftFrontX[tx] = INFINITY;
-    topLeftFrontY[tx] = INFINITY;
-    topLeftFrontZ[tx] = INFINITY;
-    botRightBackX[tx] = -INFINITY;
-    botRightBackY[tx] = -INFINITY;
-    botRightBackZ[tx] = -INFINITY;
+    // Inicialización correcta para encontrar mínimos y máximos
+    topLeftFrontX[tx] = INFINITY; // Para encontrar mínimo en X
+    topLeftFrontY[tx] = INFINITY; // Para encontrar mínimo en Y
+    topLeftFrontZ[tx] = INFINITY; // Para encontrar mínimo en Z
+
+    botRightBackX[tx] = -INFINITY; // Para encontrar máximo en X
+    botRightBackY[tx] = -INFINITY; // Para encontrar máximo en Y
+    botRightBackZ[tx] = -INFINITY; // Para encontrar máximo en Z
 
     __syncthreads();
 
-    // Cargar datos de cuerpos con o sin SFC
+    // Cargar datos del cuerpo si está dentro del rango
     if (b < nBodies)
     {
-        // Obtener el índice correcto dependiendo si usamos SFC o no
-        int bodyIndex = (useSFC && orderedIndices != nullptr) ? orderedIndices[b] : b;
-
-        Body body = bodies[bodyIndex];
+        Body body = bodies[b];
         topLeftFrontX[tx] = body.position.x;
         topLeftFrontY[tx] = body.position.y;
         topLeftFrontZ[tx] = body.position.z;
@@ -56,44 +52,38 @@ __global__ void ComputeBoundingBoxKernel(
         botRightBackZ[tx] = body.position.z;
     }
 
-    // Reducción paralela para encontrar min/max valores
+    // Reducción para encontrar mínimos y máximos
     for (int s = blockDim.x / 2; s > 0; s >>= 1)
     {
         __syncthreads();
         if (tx < s)
         {
-            // Min reduction for top-left-front
+            // Encontrar mínimos para topLeftFront
             topLeftFrontX[tx] = fmin(topLeftFrontX[tx], topLeftFrontX[tx + s]);
             topLeftFrontY[tx] = fmin(topLeftFrontY[tx], topLeftFrontY[tx + s]);
             topLeftFrontZ[tx] = fmin(topLeftFrontZ[tx], topLeftFrontZ[tx + s]);
 
-            // Max reduction for bottom-right-back
+            // Encontrar máximos para botRightBack
             botRightBackX[tx] = fmax(botRightBackX[tx], botRightBackX[tx + s]);
             botRightBackY[tx] = fmax(botRightBackY[tx], botRightBackY[tx + s]);
             botRightBackZ[tx] = fmax(botRightBackZ[tx], botRightBackZ[tx + s]);
         }
     }
 
-    // Actualizar root node con mutex para evitar race conditions
+    // Actualización del nodo raíz con mutex
     if (tx == 0)
     {
-        // Wait until mutex is available
         while (atomicCAS(mutex, 0, 1) != 0)
-        {
-        }
+            ;
+        // Actualizar mínimos y máximos con margen
+        node[0].topLeftFront.x = fmin(node[0].topLeftFront.x, topLeftFrontX[0] - 1.0e10);
+        node[0].topLeftFront.y = fmin(node[0].topLeftFront.y, topLeftFrontY[0] - 1.0e10);
+        node[0].topLeftFront.z = fmin(node[0].topLeftFront.z, topLeftFrontZ[0] - 1.0e10);
 
-        // Update bounds with a margin for numerical stability
-        // Update minimum bounds (top-left-front corner)
-        nodes[0].topLeftFront.x = fmin(nodes[0].topLeftFront.x, topLeftFrontX[0] - 1.0e10);
-        nodes[0].topLeftFront.y = fmin(nodes[0].topLeftFront.y, topLeftFrontY[0] - 1.0e10);
-        nodes[0].topLeftFront.z = fmin(nodes[0].topLeftFront.z, topLeftFrontZ[0] - 1.0e10);
+        node[0].botRightBack.x = fmax(node[0].botRightBack.x, botRightBackX[0] + 1.0e10);
+        node[0].botRightBack.y = fmax(node[0].botRightBack.y, botRightBackY[0] + 1.0e10);
+        node[0].botRightBack.z = fmax(node[0].botRightBack.z, botRightBackZ[0] + 1.0e10);
 
-        // Update maximum bounds (bottom-right-back corner)
-        nodes[0].botRightBack.x = fmax(nodes[0].botRightBack.x, botRightBackX[0] + 1.0e10);
-        nodes[0].botRightBack.y = fmax(nodes[0].botRightBack.y, botRightBackY[0] + 1.0e10);
-        nodes[0].botRightBack.z = fmax(nodes[0].botRightBack.z, botRightBackZ[0] + 1.0e10);
-
-        // Release mutex
         atomicExch(mutex, 0);
     }
 }

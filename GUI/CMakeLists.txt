@@ -56,7 +56,7 @@ FetchContent_Declare(
 FetchContent_Declare(
     imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG v1.90
+    GIT_TAG v1.91.9
 )
 
 # Disable package finding for these libraries
