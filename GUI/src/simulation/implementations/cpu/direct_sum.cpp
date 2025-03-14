@@ -1,4 +1,4 @@
-#include "../../include/simulation/cpu_direct_sum.hpp"
+#include "../../include/simulation/implementations/cpu/direct_sum.hpp"
 #include <cmath>
 #include <iostream>
 

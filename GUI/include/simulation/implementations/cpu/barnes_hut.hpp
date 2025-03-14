@@ -1,9 +1,8 @@
 #ifndef CPU_BARNES_HUT_CUH
 #define CPU_BARNES_HUT_CUH
 
-#include "../common/types.cuh"
-#include "../common/constants.cuh"
-#include "../simulation/simulation_base.cuh"
+#include "../../../common/constants.cuh"
+#include "../../base/base.cuh"
 #include <omp.h>
 #include <vector>
 #include <memory>

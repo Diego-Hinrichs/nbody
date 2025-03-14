@@ -1,10 +1,11 @@
 #ifndef SIMULATION_THREAD_HPP
 #define SIMULATION_THREAD_HPP
 
+#include "base/base.cuh"
+#include "simulation_factory.hpp"
+
 #include "../common/types.cuh"
 #include "../ui/simulation_state.hpp"
-#include "simulation_base.cuh"
-#include "simulation_factory.hpp"
 
 #include <thread>
 #include <atomic>

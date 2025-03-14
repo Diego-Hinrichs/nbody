@@ -2,7 +2,7 @@
 #ifndef BARNES_HUT_CUH
 #define BARNES_HUT_CUH
 
-#include "simulation_base.cuh"
+#include "../../base/base.cuh"
 
 /**
  * @brief Barnes-Hut N-body simulation implementation

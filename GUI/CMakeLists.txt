@@ -103,6 +103,9 @@ file(GLOB SOURCES_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/kernels/*.cu
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sfc/*.cu
     ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cu
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/simulation/implementations/gpu/*.cu
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/simulation/implementations/cpu/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/simulation/base/*.cu
 )
 
 # First, create a separate target for GLAD
@@ -139,6 +142,10 @@ set_target_properties(BarnesHutSimulation PROPERTIES
 target_include_directories(BarnesHutSimulation PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/include/ui
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/simulation/base
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/simulation/implementations/cpu
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/simulation/implementations/gpu
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/include
     ${CUDAToolkit_INCLUDE_DIRS}
     ${OPENGL_INCLUDE_DIRS}
     ${glfw_SOURCE_DIR}/include
@@ -146,7 +153,6 @@ target_include_directories(BarnesHutSimulation PRIVATE
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
     ${GLAD_INCLUDE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/include
 )
 
 # Link libraries

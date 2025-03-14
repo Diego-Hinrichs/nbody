@@ -1,4 +1,4 @@
-#include "../../include/simulation/simulation_base.cuh"
+#include "../../../include/simulation/base/base.cuh"
 #include <cmath>
 #include <cstdlib>
 #include <ctime>

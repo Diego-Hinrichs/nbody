@@ -1,10 +1,9 @@
 #ifndef CPU_SFC_DIRECT_SUM_HPP
 #define CPU_SFC_DIRECT_SUM_HPP
 
-#include "../common/types.cuh"
-#include "../common/constants.cuh"
-#include "../simulation/cpu_direct_sum.hpp"
-#include "../sfc/sfc_framework.cuh"
+#include "direct_sum.hpp"
+#include "../../../common/constants.cuh"
+#include "../../../sfc/sfc_framework.cuh"
 #include <omp.h>
 #include <vector>
 #include <algorithm>

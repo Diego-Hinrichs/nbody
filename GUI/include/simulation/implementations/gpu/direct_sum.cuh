@@ -1,13 +1,10 @@
-#ifndef GPU_DIRECT_SUM_CUH
-#define GPU_DIRECT_SUM_CUH
+#ifndef DIRECT_SUM_CUH
+#define DIRECT_SUM_CUH
 
-#include "../common/types.cuh"
-#include "../common/constants.cuh"
-#include "../common/error_handling.cuh"
-#include "../simulation/simulation_base.cuh"
-
-// Forward declaration of CUDA kernel
-__global__ void DirectSumForceKernel(Body *bodies, int nBodies);
+#include "../../../common/types.cuh"
+#include "../../../common/constants.cuh"
+#include "../../../common/error_handling.cuh"
+#include "../../base/base.cuh"
 
 /**
  * @brief GPU-based Direct Sum N-body simulation implementation

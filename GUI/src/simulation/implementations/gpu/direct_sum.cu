@@ -1,4 +1,4 @@
-#include "../../include/simulation/gpu_direct_sum.cuh"
+#include "../../include/simulation/implementations/gpu/direct_sum.cuh"
 #include <iostream>
 
 /**

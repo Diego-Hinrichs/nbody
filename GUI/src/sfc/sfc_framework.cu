@@ -1,5 +1,5 @@
 #include "../../include/sfc/sfc_framework.cuh"
-#include "../common/error_handling.cuh"
+#include "../../include/common/error_handling.cuh"
 #include <thrust/device_vector.h>
 #include <thrust/sort.h>
 #include <thrust/execution_policy.h>

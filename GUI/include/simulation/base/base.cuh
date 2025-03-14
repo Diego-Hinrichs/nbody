@@ -1,10 +1,10 @@
-#ifndef SIMULATION_BASE_CUH
-#define SIMULATION_BASE_CUH
+#ifndef BASE_CUH
+#define BASE_CUH
 
-#include "../common/types.cuh"
-#include "../common/constants.cuh"
-#include "../common/error_handling.cuh"
-#include "../ui/simulation_state.hpp"
+#include "../../common/types.cuh"
+#include "../../common/constants.cuh"
+#include "../../common/error_handling.cuh"
+#include "../../ui/simulation_state.hpp"
 #include <functional>
 #include <vector>
 #include <memory>
@@ -219,4 +219,4 @@ public:
     }
 };
 
-#endif // SIMULATION_BASE_CUH
+#endif // BASE_CUH

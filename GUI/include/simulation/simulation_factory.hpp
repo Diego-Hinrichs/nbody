@@ -1,19 +1,21 @@
 #ifndef SIMULATION_FACTORY_HPP
 #define SIMULATION_FACTORY_HPP
 
+
+#include "base/base.cuh"
+#include "implementations/cpu/direct_sum.hpp"
+#include "implementations/cpu/sfc_variants.hpp"
+#include "implementations/cpu/barnes_hut.hpp"
+
+#include "implementations/gpu/direct_sum.cuh"
+#include "implementations/gpu/sfc_variants.cuh"
+#include "implementations/gpu/barnes_hut.cuh"
+
+#include "../sfc/sfc_framework.cuh"
+#include "../ui/simulation_state.hpp"
+
 #include <memory>
 #include <functional>
-#include "../common/types.cuh"
-#include "../ui/simulation_state.hpp"
-#include "simulation_base.cuh"
-#include "cpu_direct_sum.hpp"
-#include "cpu_sfc_direct_sum.hpp"
-#include "cpu_barnes_hut.hpp"
-#include "gpu_direct_sum.cuh"
-#include "gpu_sfc_direct_sum.cuh"
-#include "gpu_barnes_hut.cuh"
-#include "gpu_sfc_barnes_hut.cuh"
-#include "../sfc/sfc_framework.cuh"
 
 /**
  * @brief Factory class to create simulation instances

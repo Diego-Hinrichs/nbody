@@ -1,4 +1,4 @@
-#include "../../include/simulation/cpu_barnes_hut.hpp"
+#include "../../include/simulation/implementations/cpu/barnes_hut.hpp"
 #include "../../include/common/types.cuh"
 #include <cmath>
 #include <iostream>

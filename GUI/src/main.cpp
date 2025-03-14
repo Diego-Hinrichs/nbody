@@ -13,18 +13,15 @@
 #include <glm/glm.hpp>
 
 #include "../include/common/constants.cuh"
-#include "../include/simulation/simulation_base.cuh"
+#include "../include/simulation/base/base.cuh"
 
-#include "../include/simulation/cpu_direct_sum.hpp"     // CPU Direct Sum
-#include "../include/simulation/cpu_sfc_direct_sum.hpp" // CPU SFC Direct Sum
+#include "../include/simulation/implementations/cpu/direct_sum.hpp"
+#include "../include/simulation/implementations/cpu/barnes_hut.hpp"
+#include "../include/simulation/implementations/cpu/sfc_variants.hpp"
 
-#include "../include/simulation/cpu_barnes_hut.hpp" // CPU Barnes-Hut
-
-#include "../include/simulation/gpu_barnes_hut.cuh"
-#include "../include/simulation/gpu_sfc_barnes_hut.cuh"
-
-#include "../include/simulation/gpu_direct_sum.cuh"     // GPU Direct Sum
-#include "../include/simulation/gpu_sfc_direct_sum.cuh" // GPU SFC Direct Sum
+#include "../include/simulation/implementations/gpu/direct_sum.cuh"
+#include "../include/simulation/implementations/gpu/barnes_hut.cuh"
+#include "../include/simulation/implementations/gpu/sfc_variants.cuh"
 
 #include "../include/ui/simulation_state.hpp"
 #include "../include/ui/opengl_renderer.hpp"
