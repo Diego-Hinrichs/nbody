@@ -19,7 +19,7 @@ struct CPUOctreeNode;
  */
 class CPUBarnesHut : public SimulationBase
 {
-private:
+protected:
     bool useOpenMP; // Flag to enable/disable OpenMP parallelization
     int numThreads; // Number of OpenMP threads to use
 

@@ -54,13 +54,6 @@ void SimulationUIManager::renderUI(GLFWwindow *window)
             ImGui::EndTabItem();
         }
 
-        // Tab 5: SFC-specific options (optionally, if you want a dedicated tab)
-        if (ImGui::BeginTabItem("SFC Options"))
-        {
-            renderSFCOptions();
-            ImGui::EndTabItem();
-        }
-
         ImGui::EndTabBar();
     }
 
@@ -199,57 +192,65 @@ void SimulationUIManager::renderSimulationMethodSelector()
 {
     ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Select Simulation Algorithm");
 
-    // Method selection with the complete list of algorithms including SFC variants
+    // Simplified method selection with just 4 main options
     static const char *methodTypes[] = {
-        "CPU Direct Sum",
-        "CPU SFC Direct Sum",
-        "GPU Direct Sum",
-        "GPU SFC Direct Sum",
-        "CPU Barnes-Hut",
-        "CPU SFC Barnes-Hut",
-        "GPU Barnes-Hut",
-        "GPU SFC Barnes-Hut"};
+        "Direct Sum (CPU)",
+        "Direct Sum (GPU)",
+        "Barnes-Hut (CPU)",
+        "Barnes-Hut (GPU)"};
 
-    // The enum values now directly correspond to array indices
+    // Convert enum value to simplified index
     int currentMethod = static_cast<int>(simulationState_.simulationMethod.load());
+    int simplifiedMethod;
 
-    if (ImGui::Combo("Algorithm", &currentMethod, methodTypes, IM_ARRAYSIZE(methodTypes)))
+    // Map the original enum values to our simplified selection
+    switch (currentMethod)
     {
-        // Set the selected simulation method
-        simulationState_.simulationMethod.store(static_cast<SimulationMethod>(currentMethod));
+    case 0:                   // CPU_DIRECT_SUM
+    case 1:                   // CPU_SFC_DIRECT_SUM
+        simplifiedMethod = 0; // Direct Sum (CPU)
+        break;
+    case 2:                   // GPU_DIRECT_SUM
+    case 3:                   // GPU_SFC_DIRECT_SUM
+        simplifiedMethod = 1; // Direct Sum (GPU)
+        break;
+    case 4:                   // CPU_BARNES_HUT
+    case 5:                   // CPU_SFC_BARNES_HUT
+        simplifiedMethod = 2; // Barnes-Hut (CPU)
+        break;
+    case 6: // GPU_BARNES_HUT
+    case 7: // GPU_SFC_BARNES_HUT
+    default:
+        simplifiedMethod = 3; // Barnes-Hut (GPU)
+        break;
+    }
 
-        // Reset options based on new method selected
-        switch (static_cast<SimulationMethod>(currentMethod))
+    if (ImGui::Combo("Algorithm", &simplifiedMethod, methodTypes, IM_ARRAYSIZE(methodTypes)))
+    {
+        // Set the selected simulation method, preserving SFC settings
+        bool useSFC = simulationState_.useSFC.load();
+
+        // Map simplified selection back to the appropriate enum value
+        SimulationMethod newMethod;
+
+        switch (simplifiedMethod)
         {
-        case SimulationMethod::CPU_DIRECT_SUM:
-        case SimulationMethod::CPU_BARNES_HUT:
-            // Default options for CPU methods
-            simulationState_.useOpenMP.store(true);
-            simulationState_.openMPThreads.store(omp_get_max_threads());
-            simulationState_.useSFC.store(false);
+        case 0: // Direct Sum (CPU)
+            newMethod = useSFC ? SimulationMethod::CPU_SFC_DIRECT_SUM : SimulationMethod::CPU_DIRECT_SUM;
             break;
-
-        case SimulationMethod::CPU_SFC_DIRECT_SUM:
-        case SimulationMethod::CPU_SFC_BARNES_HUT:
-            // Default options for CPU SFC methods
-            simulationState_.useOpenMP.store(true);
-            simulationState_.openMPThreads.store(omp_get_max_threads());
-            simulationState_.useSFC.store(true);
+        case 1: // Direct Sum (GPU)
+            newMethod = useSFC ? SimulationMethod::GPU_SFC_DIRECT_SUM : SimulationMethod::GPU_DIRECT_SUM;
             break;
-
-        case SimulationMethod::GPU_DIRECT_SUM:
-        case SimulationMethod::GPU_BARNES_HUT:
-            // Default options for basic GPU methods
-            simulationState_.useSFC.store(false);
+        case 2: // Barnes-Hut (CPU)
+            newMethod = useSFC ? SimulationMethod::CPU_SFC_BARNES_HUT : SimulationMethod::CPU_BARNES_HUT;
             break;
-
-        case SimulationMethod::GPU_SFC_DIRECT_SUM:
-        case SimulationMethod::GPU_SFC_BARNES_HUT:
-            // Default options for GPU SFC methods
-            simulationState_.useSFC.store(true);
+        case 3: // Barnes-Hut (GPU)
+        default:
+            newMethod = useSFC ? SimulationMethod::GPU_SFC_BARNES_HUT : SimulationMethod::GPU_BARNES_HUT;
             break;
         }
 
+        simulationState_.simulationMethod.store(newMethod);
         simulationState_.restart.store(true);
     }
 
@@ -257,38 +258,22 @@ void SimulationUIManager::renderSimulationMethodSelector()
     ImGui::Spacing();
     ImGui::TextWrapped("Method Description:");
 
-    switch (static_cast<SimulationMethod>(currentMethod))
+    switch (simplifiedMethod)
     {
-    case SimulationMethod::CPU_DIRECT_SUM:
+    case 0: // Direct Sum (CPU)
         ImGui::TextWrapped("CPU Direct Sum: Computes all body-to-body interactions directly (O(n²) complexity). Good for smaller simulations.");
         break;
 
-    case SimulationMethod::CPU_SFC_DIRECT_SUM:
-        ImGui::TextWrapped("CPU SFC Direct Sum: Enhances Direct Sum with Space-Filling Curve for better cache utilization and memory access patterns.");
-        break;
-
-    case SimulationMethod::GPU_DIRECT_SUM:
+    case 1: // Direct Sum (GPU)
         ImGui::TextWrapped("GPU Direct Sum: Leverages GPU parallelism for direct body-to-body calculations. Good for medium-sized simulations.");
         break;
 
-    case SimulationMethod::GPU_SFC_DIRECT_SUM:
-        ImGui::TextWrapped("GPU SFC Direct Sum: Combines GPU parallelism with Space-Filling Curve for improved memory access coherence.");
-        break;
-
-    case SimulationMethod::CPU_BARNES_HUT:
+    case 2: // Barnes-Hut (CPU)
         ImGui::TextWrapped("CPU Barnes-Hut: Uses an octree to approximate distant interactions, reducing complexity to O(n log n). Good for larger simulations.");
         break;
 
-    case SimulationMethod::CPU_SFC_BARNES_HUT:
-        ImGui::TextWrapped("CPU SFC Barnes-Hut: Enhances Barnes-Hut with Space-Filling Curve for better cache performance and memory access patterns.");
-        break;
-
-    case SimulationMethod::GPU_BARNES_HUT:
+    case 3: // Barnes-Hut (GPU)
         ImGui::TextWrapped("GPU Barnes-Hut: Implements Barnes-Hut algorithm on GPU for high-performance large-scale simulations.");
-        break;
-
-    case SimulationMethod::GPU_SFC_BARNES_HUT:
-        ImGui::TextWrapped("GPU SFC Barnes-Hut: The most advanced algorithm, combining GPU Barnes-Hut with Space-Filling Curve optimization for maximum performance with very large simulations.");
         break;
     }
 }
@@ -296,13 +281,18 @@ void SimulationUIManager::renderSimulationMethodSelector()
 // Fix for renderAdvancedOptions()
 void SimulationUIManager::renderAdvancedOptions()
 {
-    SimulationMethod currentMethod = simulationState_.simulationMethod.load();
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Advanced Options");
 
-    // CPU Parallelization Options
-    if (currentMethod == SimulationMethod::CPU_DIRECT_SUM ||
-        currentMethod == SimulationMethod::CPU_BARNES_HUT)
+    // CPU Parallelization Options - show for any CPU method
+    SimulationMethod currentMethod = simulationState_.simulationMethod.load();
+    bool isCPUMethod = (currentMethod == SimulationMethod::CPU_DIRECT_SUM ||
+                        currentMethod == SimulationMethod::CPU_SFC_DIRECT_SUM ||
+                        currentMethod == SimulationMethod::CPU_BARNES_HUT ||
+                        currentMethod == SimulationMethod::CPU_SFC_BARNES_HUT);
+
+    if (isCPUMethod)
     {
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "CPU Parallelization Options");
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "CPU Parallelization");
 
         bool useOpenMP = simulationState_.useOpenMP.load();
         if (ImGui::Checkbox("Enable OpenMP Multithreading", &useOpenMP))
@@ -335,24 +325,46 @@ void SimulationUIManager::renderAdvancedOptions()
         ImGui::Separator();
     }
 
-    // Space-Filling Curve Options
+    // Space-Filling Curve Options - show for all methods
     ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Space-Filling Curve Options");
-
-    // Show SFC options for Barnes-Hut methods only
-    bool isBarnesHut = (currentMethod == SimulationMethod::CPU_BARNES_HUT ||
-                        currentMethod == SimulationMethod::GPU_BARNES_HUT);
-
-    if (!isBarnesHut)
-    {
-        ImGui::TextWrapped("Space-Filling Curve options are only applicable to Barnes-Hut methods.");
-        return;
-    }
 
     // SFC Toggle
     bool sfcEnabled = simulationState_.useSFC.load();
     if (ImGui::Checkbox("Enable Space-Filling Curve", &sfcEnabled))
     {
+        // Update the useSFC flag
         simulationState_.useSFC.store(sfcEnabled);
+
+        // Update the method to match the appropriate SFC/non-SFC variant
+        SimulationMethod baseMethod = currentMethod;
+        SimulationMethod newMethod;
+
+        // Convert to the SFC or non-SFC version of the current method
+        switch (baseMethod)
+        {
+        case SimulationMethod::CPU_DIRECT_SUM:
+        case SimulationMethod::CPU_SFC_DIRECT_SUM:
+            newMethod = sfcEnabled ? SimulationMethod::CPU_SFC_DIRECT_SUM : SimulationMethod::CPU_DIRECT_SUM;
+            break;
+
+        case SimulationMethod::GPU_DIRECT_SUM:
+        case SimulationMethod::GPU_SFC_DIRECT_SUM:
+            newMethod = sfcEnabled ? SimulationMethod::GPU_SFC_DIRECT_SUM : SimulationMethod::GPU_DIRECT_SUM;
+            break;
+
+        case SimulationMethod::CPU_BARNES_HUT:
+        case SimulationMethod::CPU_SFC_BARNES_HUT:
+            newMethod = sfcEnabled ? SimulationMethod::CPU_SFC_BARNES_HUT : SimulationMethod::CPU_BARNES_HUT;
+            break;
+
+        case SimulationMethod::GPU_BARNES_HUT:
+        case SimulationMethod::GPU_SFC_BARNES_HUT:
+        default:
+            newMethod = sfcEnabled ? SimulationMethod::GPU_SFC_BARNES_HUT : SimulationMethod::GPU_BARNES_HUT;
+            break;
+        }
+
+        simulationState_.simulationMethod.store(newMethod);
         simulationState_.restart.store(true);
     }
 
@@ -360,24 +372,53 @@ void SimulationUIManager::renderAdvancedOptions()
     {
         ImGui::TextWrapped("SFC improves memory access patterns by organizing data along a space-filling curve.");
 
-        // SFC Ordering Mode
-        static const char *orderingModes[] = {"Particle Ordering", "Octant Ordering"};
-        int currentMode = static_cast<int>(simulationState_.sfcOrderingMode.load());
+        // Curve Type Selection
+        static const char *curveTypes[] = {"Morton (Z-order)", "Hilbert"};
+        int curveTypeIndex = (simulationState_.sfcCurveType.load() == sfc::CurveType::MORTON) ? 0 : 1;
 
-        if (ImGui::Combo("Ordering Mode", &currentMode, orderingModes, IM_ARRAYSIZE(orderingModes)))
+        if (ImGui::Combo("Curve Type", &curveTypeIndex, curveTypes, IM_ARRAYSIZE(curveTypes)))
         {
-            simulationState_.sfcOrderingMode.store(static_cast<SFCOrderingMode>(currentMode));
+            simulationState_.sfcCurveType.store(curveTypeIndex == 0 ? sfc::CurveType::MORTON : sfc::CurveType::HILBERT);
             simulationState_.restart.store(true);
         }
 
-        // Ordering mode descriptions
-        if (currentMode == 0)
-        { // Particle ordering
-            ImGui::TextWrapped("Particle Ordering: Bodies are sorted according to their position along a Space-Filling Curve to improve memory locality.");
+        // Show curve type descriptions
+        if (curveTypeIndex == 0)
+        {
+            ImGui::TextWrapped("Morton/Z-order: Simple bit-interleaving curve. Faster to compute but less spatial coherence.");
         }
         else
-        { // Octant ordering
-            ImGui::TextWrapped("Octant Ordering: Tree nodes are arranged according to a Space-Filling Curve to improve traversal efficiency.");
+        {
+            ImGui::TextWrapped("Hilbert curve: Better spatial coherence (neighboring points stay closer), slightly more expensive to compute.");
+        }
+
+        // Only show ordering mode for Barnes-Hut methods
+        bool isBarnesHut = (currentMethod == SimulationMethod::CPU_BARNES_HUT ||
+                            currentMethod == SimulationMethod::CPU_SFC_BARNES_HUT ||
+                            currentMethod == SimulationMethod::GPU_BARNES_HUT ||
+                            currentMethod == SimulationMethod::GPU_SFC_BARNES_HUT);
+
+        if (isBarnesHut)
+        {
+            // SFC Ordering Mode
+            static const char *orderingModes[] = {"Particle Ordering", "Octant Ordering"};
+            int currentMode = static_cast<int>(simulationState_.sfcOrderingMode.load());
+
+            if (ImGui::Combo("Ordering Mode", &currentMode, orderingModes, IM_ARRAYSIZE(orderingModes)))
+            {
+                simulationState_.sfcOrderingMode.store(static_cast<SFCOrderingMode>(currentMode));
+                simulationState_.restart.store(true);
+            }
+
+            // Ordering mode descriptions
+            if (currentMode == 0)
+            { // Particle ordering
+                ImGui::TextWrapped("Particle Ordering: Bodies are sorted according to their position along a Space-Filling Curve.");
+            }
+            else
+            { // Octant ordering
+                ImGui::TextWrapped("Octant Ordering: Tree nodes are arranged according to a Space-Filling Curve.");
+            }
         }
 
         // Reorder Frequency Slider
@@ -385,15 +426,14 @@ void SimulationUIManager::renderAdvancedOptions()
         if (ImGui::SliderInt("Reorder Frequency", &reorderFreq, 1, 100, "Every %d iterations"))
         {
             simulationState_.reorderFrequency.store(reorderFreq);
+            simulationState_.restart.store(true);
         }
-        ImGui::TextWrapped("How often to recalculate the space-filling curve. Lower values improve accuracy but reduce performance.");
+        ImGui::TextWrapped("How often to recalculate the space-filling curve ordering.");
     }
     else
     {
         ImGui::TextWrapped("Enable Space-Filling Curve to access ordering options.");
     }
-
-    renderSFCOptions();
 }
 
 void SimulationUIManager::renderSFCOptions()
