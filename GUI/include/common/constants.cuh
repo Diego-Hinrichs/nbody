@@ -17,9 +17,9 @@ namespace SimulationConstants
     constexpr double SOFTENING_FACTOR = 0.5;       // Softening factor for avoiding div by 0
 
     // Simulation constants
-    constexpr int BLOCK_SIZE = 1024;  // CUDA block size
-    constexpr int MAX_NODES = 349525; // Maximum number of nodes in the octree
-    constexpr int N_LEAF = 262144;    // Leaf threshold (affects recursion depth)
+    constexpr int BLOCK_SIZE = 1024;   // CUDA block size
+    constexpr int MAX_NODES = 1048576; // Maximum number of nodes in the octree
+    constexpr int N_LEAF = 524288;     // Leaf threshold (affects recursion depth)
 
     // Astronomical constants
     constexpr double MAX_DIST = 5.0e11;     // Maximum distance for initial distribution

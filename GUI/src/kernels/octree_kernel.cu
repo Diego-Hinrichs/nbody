@@ -2,10 +2,6 @@
 #include "../../include/common/constants.cuh"
 #include <stdio.h>
 
-// Constants for the device work queue
-constexpr int MAX_JOBS = 100000; // Adjust according to expected maximum tree depth
-constexpr int QUEUE_EMPTY = -1;
-
 __device__ int getOctant(Vector topLeftFront, Vector botRightBack, double x, double y, double z)
 {
     int octant = 1;
@@ -181,6 +177,21 @@ __device__ void ComputeCenterMass(Node &curNode, Body *bodies, double *totalMass
     }
 }
 
+__device__ void ComputeOffset(int *count, int start)
+{
+    int tx = threadIdx.x;
+    if (tx < 8)
+    {
+        int offset = start;
+        for (int i = 0; i < tx; ++i)
+        {
+            offset += count[i];
+        }
+        count[tx + 8] = offset;
+    }
+    __syncthreads();
+}
+
 __device__ void CountBodies(Body *bodies, Vector topLeftFront, Vector botRightBack, int *count, int start, int end, int nBodies)
 {
     int tx = threadIdx.x;
@@ -193,21 +204,6 @@ __device__ void CountBodies(Body *bodies, Vector topLeftFront, Vector botRightBa
         Body body = bodies[i];
         int oct = getOctant(topLeftFront, botRightBack, body.position.x, body.position.y, body.position.z);
         atomicAdd(&count[oct - 1], 1);
-    }
-    __syncthreads();
-}
-
-__device__ void ComputeOffset(int *count, int start)
-{
-    int tx = threadIdx.x;
-    if (tx < 8)
-    {
-        int offset = start;
-        for (int i = 0; i < tx; ++i)
-        {
-            offset += count[i];
-        }
-        count[tx + 8] = offset;
     }
     __syncthreads();
 }

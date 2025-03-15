@@ -1,8 +1,6 @@
 #include "../../include/common/types.cuh"
 #include "../../include/common/constants.cuh"
 
-#define NODE_CACHE_SIZE 32 // Reduced from 64 to a more optimal size for shared memory
-
 __device__ double getDistance(Vector pos1, Vector pos2)
 {
     return sqrt(pow(pos1.x - pos2.x, 2) + pow(pos1.y - pos2.y, 2) + pow(pos1.z - pos2.z, 2));
@@ -16,7 +14,7 @@ __device__ bool isCollide(Body &b1, Vector cm)
 }
 
 __device__ void ComputeForce(Node *node, Body *bodies, int nodeIndex, int bodyIndex,
-                             int nNodes, int nBodies, int leafLimit, double width)
+                            int nNodes, int nBodies, int leafLimit, double width)
 {
     if (nodeIndex >= nNodes)
         return;
@@ -27,6 +25,8 @@ __device__ void ComputeForce(Node *node, Body *bodies, int nodeIndex, int bodyIn
     // Caso de nodo hoja: usar el centro de masa para aproximar la fuerza
     if (curNode.isLeaf)
     {
+        // printf("Condition: %d\n", curNode.centerMass.x != -1 && !isCollide(bi, curNode.centerMass));
+        // printf("curNode.centerMass.x: %f\n", curNode.centerMass.x);
         // Verificar que el centro de masa es válido (asumiendo que -1 significa no válido)
         if (curNode.centerMass.x != -1 && !isCollide(bi, curNode.centerMass))
         {
@@ -88,7 +88,6 @@ __global__ void ComputeForceKernel(Node *node, Body *bodies, int nNodes, int nBo
         Body &bi = bodies[i];
         if (bi.isDynamic)
         {
-            // Reiniciar la aceleración
             bi.acceleration = {0.0, 0.0, 0.0};
 
             // Compute the force recursively
@@ -102,6 +101,7 @@ __global__ void ComputeForceKernel(Node *node, Body *bodies, int nNodes, int nBo
             bi.position.x += bi.velocity.x * DT;
             bi.position.y += bi.velocity.y * DT;
             bi.position.z += bi.velocity.z * DT;
+
         }
     }
 }

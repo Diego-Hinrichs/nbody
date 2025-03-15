@@ -1,0 +1,201 @@
+========= COMPUTE-SANITIZER
+Attempting to use dedicated GPU...
+[INFO] OpenGL Version: 4.5 (Core Profile) Mesa 23.2.1-1ubuntu3.1~22.04.3
+[INFO] GLSL Version: 4.50
+[INFO] Renderer: llvmpipe (LLVM 15.0.7, 256 bits)
+Max Vertex Attributes: 16
+Max Texture Units: 8
+Max Texture Size: 16384
+OpenGL Renderer initialized successfully
+Shader program ID: 3
+CPU Barnes-Hut Simulation created with 1000 bodies.
+OpenMP enabled with 16 threads.
+========= Invalid __global__ write of size 8 bytes
+=========     at ConstructOctTreeKernel(Node *, Body *, Body *, int, int, int, int)+0x2510
+=========     by thread (0,0,0) in block (7,0,0)
+=========     Address 0x7127bd880 is out of bounds
+=========     and is 75225217 bytes after the nearest allocation at 0x70d200000 of size 14680064 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========     Host Frame: [0x22f5d7]
+=========                in /usr/lib/wsl/drivers/nvmdi.inf_amd64_fe5a9cae5c641286/libcuda.so.1.1
+=========     Host Frame: [0x15aa7]
+=========                in /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcudart.so.12
+=========     Host Frame:cudaLaunchKernel [0x759f0]
+=========                in /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcudart.so.12
+=========     Host Frame:ConstructOctTreeKernel(Node*, Body*, Body*, int, int, int, int) [0x19238]
+=========                in /home/diegoh/nbody/GUI/./build/BarnesHutSimulation
+=========     Host Frame:BarnesHut::update() [0x413e2]
+=========                in /home/diegoh/nbody/GUI/./build/BarnesHutSimulation
+=========     Host Frame:simulationThread(SimulationState*) [0x17315]
+=========                in /home/diegoh/nbody/GUI/./build/BarnesHutSimulation
+=========     Host Frame: [0xdc252]
+=========                in /lib/x86_64-linux-gnu/libstdc++.so.6
+=========     Host Frame: [0x94ac2]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+=========     Host Frame: [0x12684f]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+========= 
+========= Invalid __global__ write of size 8 bytes
+=========     at ConstructOctTreeKernel(Node *, Body *, Body *, int, int, int, int)+0x2510
+=========     by thread (0,0,0) in block (2,0,0)
+=========     Address 0x7127ec980 is out of bounds
+=========     and is 75417985 bytes after the nearest allocation at 0x70d200000 of size 14680064 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========     Host Frame: [0x22f5d7]
+=========                in /usr/lib/wsl/drivers/nvmdi.inf_amd64_fe5a9cae5c641286/libcuda.so.1.1
+=========     Host Frame: [0x15aa7]
+=========                in /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcudart.so.12
+=========     Host Frame:cudaLaunchKernel [0x759f0]
+=========                in /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcudart.so.12
+=========     Host Frame:ConstructOctTreeKernel(Node*, Body*, Body*, int, int, int, int) [0x19238]
+=========                in /home/diegoh/nbody/GUI/./build/BarnesHutSimulation
+=========     Host Frame:BarnesHut::update() [0x413e2]
+=========                in /home/diegoh/nbody/GUI/./build/BarnesHutSimulation
+=========     Host Frame:simulationThread(SimulationState*) [0x17315]
+=========                in /home/diegoh/nbody/GUI/./build/BarnesHutSimulation
+=========     Host Frame: [0xdc252]
+=========                in /lib/x86_64-linux-gnu/libstdc++.so.6
+=========     Host Frame: [0x94ac2]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+=========     Host Frame: [0x12684f]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+========= 
+========= Invalid __global__ write of size 8 bytes
+=========     at ConstructOctTreeKernel(Node *, Body *, Body *, int, int, int, int)+0x2510
+=========     by thread (0,0,0) in block (7,0,0)
+=========     Address 0x7127b0080 is out of bounds
+=========     and is 75169921 bytes after the nearest allocation at 0x70d200000 of size 14680064 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========     Host Frame: [0x22f5d7]
+=========                in /usr/lib/wsl/drivers/nvmdi.inf_amd64_fe5a9cae5c641286/libcuda.so.1.1
+=========     Host Frame: [0x15aa7]
+=========                in /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcudart.so.12
+=========     Host Frame:cudaLaunchKernel [0x759f0]
+=========                in /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcudart.so.12
+=========     Host Frame:ConstructOctTreeKernel(Node*, Body*, Body*, int, int, int, int) [0x19238]
+=========                in /home/diegoh/nbody/GUI/./build/BarnesHutSimulation
+=========     Host Frame:BarnesHut::update() [0x413e2]
+=========                in /home/diegoh/nbody/GUI/./build/BarnesHutSimulation
+=========     Host Frame:simulationThread(SimulationState*) [0x17315]
+=========                in /home/diegoh/nbody/GUI/./build/BarnesHutSimulation
+=========     Host Frame: [0xdc252]
+=========                in /lib/x86_64-linux-gnu/libstdc++.so.6
+=========     Host Frame: [0x94ac2]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+=========     Host Frame: [0x12684f]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+========= 
+========= Invalid __global__ write of size 8 bytes
+=========     at ConstructOctTreeKernel(Node *, Body *, Body *, int, int, int, int)+0x2510
+=========     by thread (0,0,0) in block (6,0,0)
+=========     Address 0x7127ed580 is out of bounds
+=========     and is 75421057 bytes after the nearest allocation at 0x70d200000 of size 14680064 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========     Host Frame: [0x22f5d7]
+=========                in /usr/lib/wsl/drivers/nvmdi.inf_amd64_fe5a9cae5c641286/libcuda.so.1.1
+=========     Host Frame: [0x15aa7]
+=========                in /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcudart.so.12
+=========     Host Frame:cudaLaunchKernel [0x759f0]
+=========                in /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcudart.so.12
+=========     Host Frame:ConstructOctTreeKernel(Node*, Body*, Body*, int, int, int, int) [0x19238]
+=========                in /home/diegoh/nbody/GUI/./build/BarnesHutSimulation
+=========     Host Frame:BarnesHut::update() [0x413e2]
+=========                in /home/diegoh/nbody/GUI/./build/BarnesHutSimulation
+=========     Host Frame:simulationThread(SimulationState*) [0x17315]
+=========                in /home/diegoh/nbody/GUI/./build/BarnesHutSimulation
+=========     Host Frame: [0xdc252]
+=========                in /lib/x86_64-linux-gnu/libstdc++.so.6
+=========     Host Frame: [0x94ac2]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+=========     Host Frame: [0x12684f]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+========= 
+========= Invalid __global__ write of size 8 bytes
+=========     at ConstructOctTreeKernel(Node *, Body *, Body *, int, int, int, int)+0x2510
+=========     by thread (0,0,0) in block (7,0,0)
+=========     Address 0x70e12a080 is out of bounds
+=========     and is 1220737 bytes after the nearest allocation at 0x70d200000 of size 14680064 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========     Host Frame: [0x22f5d7]
+=========                in /usr/lib/wsl/drivers/nvmdi.inf_amd64_fe5a9cae5c641286/libcuda.so.1.1
+=========     Host Frame: [0x15aa7]
+=========                in /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcudart.so.12
+=========     Host Frame:cudaLaunchKernel [0x759f0]
+=========                in /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcudart.so.12
+=========     Host Frame:ConstructOctTreeKernel(Node*, Body*, Body*, int, int, int, int) [0x19238]
+=========                in /home/diegoh/nbody/GUI/./build/BarnesHutSimulation
+=========     Host Frame:BarnesHut::update() [0x413e2]
+=========                in /home/diegoh/nbody/GUI/./build/BarnesHutSimulation
+=========     Host Frame:simulationThread(SimulationState*) [0x17315]
+=========                in /home/diegoh/nbody/GUI/./build/BarnesHutSimulation
+=========     Host Frame: [0xdc252]
+=========                in /lib/x86_64-linux-gnu/libstdc++.so.6
+=========     Host Frame: [0x94ac2]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+=========     Host Frame: [0x12684f]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+========= 
+========= Invalid __global__ write of size 8 bytes
+=========     at ConstructOctTreeKernel(Node *, Body *, Body *, int, int, int, int)+0x2510
+=========     by thread (0,0,0) in block (7,0,0)
+=========     Address 0x70e10d880 is out of bounds
+=========     and is 1104001 bytes after the nearest allocation at 0x70d200000 of size 14680064 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========     Host Frame: [0x22f5d7]
+=========                in /usr/lib/wsl/drivers/nvmdi.inf_amd64_fe5a9cae5c641286/libcuda.so.1.1
+=========     Host Frame: [0x15aa7]
+=========                in /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcudart.so.12
+=========     Host Frame:cudaLaunchKernel [0x759f0]
+=========                in /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcudart.so.12
+=========     Host Frame:ConstructOctTreeKernel(Node*, Body*, Body*, int, int, int, int) [0x19238]
+=========                in /home/diegoh/nbody/GUI/./build/BarnesHutSimulation
+=========     Host Frame:BarnesHut::update() [0x413e2]
+=========                in /home/diegoh/nbody/GUI/./build/BarnesHutSimulation
+=========     Host Frame:simulationThread(SimulationState*) [0x17315]
+=========                in /home/diegoh/nbody/GUI/./build/BarnesHutSimulation
+=========     Host Frame: [0xdc252]
+=========                in /lib/x86_64-linux-gnu/libstdc++.so.6
+=========     Host Frame: [0x94ac2]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+=========     Host Frame: [0x12684f]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+========= 
+========= Program hit cudaErrorUnknown (error 999) due to "unknown error" on CUDA API call to cudaDeviceSynchronize.
+=========     Saved host backtrace up to driver entry point at error
+=========     Host Frame: [0x4134d2]
+=========                in /usr/lib/wsl/drivers/nvmdi.inf_amd64_fe5a9cae5c641286/libcuda.so.1.1
+=========     Host Frame:cudaDeviceSynchronize [0x4af09]
+=========                in /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcudart.so.12
+=========     Host Frame:BarnesHut::update() [0x41318]
+=========                in /home/diegoh/nbody/GUI/./build/BarnesHutSimulation
+=========     Host Frame:simulationThread(SimulationState*) [0x17315]
+=========                in /home/diegoh/nbody/GUI/./build/BarnesHutSimulation
+=========     Host Frame: [0xdc252]
+=========                in /lib/x86_64-linux-gnu/libstdc++.so.6
+=========     Host Frame: [0x94ac2]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+=========     Host Frame: [0x12684f]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+========= 
+========= Program hit cudaErrorUnknown (error 999) due to "unknown error" on CUDA API call to cudaEventCreate.
+=========     Saved host backtrace up to driver entry point at error
+=========     Host Frame: [0x4134d2]
+=========                in /usr/lib/wsl/drivers/nvmdi.inf_amd64_fe5a9cae5c641286/libcuda.so.1.1
+=========     Host Frame:cudaEventCreate [0x52f30]
+=========                in /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcudart.so.12
+=========     Host Frame:BarnesHut::computeForces() [0x40f8b]
+=========                in /home/diegoh/nbody/GUI/./build/BarnesHutSimulation
+=========     Host Frame:BarnesHut::update() [0x41320]
+=========                in /home/diegoh/nbody/GUI/./build/BarnesHutSimulation
+=========     Host Frame:simulationThread(SimulationState*) [0x17315]
+=========                in /home/diegoh/nbody/GUI/./build/BarnesHutSimulation
+=========     Host Frame: [0xdc252]
+=========                in /lib/x86_64-linux-gnu/libstdc++.so.6
+=========     Host Frame: [0x94ac2]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+=========     Host Frame: [0x12684f]
+=========                in /lib/x86_64-linux-gnu/libc.so.6
+========= 
+========= Error: process didn't terminate successfully
+========= Target application returned an error
+========= ERROR SUMMARY: 8 errors

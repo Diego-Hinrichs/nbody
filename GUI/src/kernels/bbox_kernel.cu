@@ -1,20 +1,6 @@
 #include "../../include/common/types.cuh"
 #include "../../include/common/constants.cuh"
 
-/**
- * @brief CUDA kernel to compute the bounding box for a set of bodies.
- *
- * This kernel calculates the bounding box for a given set of bodies, which
- * are represented by nodes and bodies arrays. The bounding box is used to
- * determine the spatial extent of the bodies in the simulation.
- *
- * @param nodes Pointer to the array of nodes representing the bounding box.
- * @param bodies Pointer to the array of bodies in the simulation.
- * @param orderedIndices Pointer to the array of ordered indices for the bodies.
- * @param useSFC Boolean flag indicating whether to use Space-Filling Curve (SFC) for ordering.
- * @param mutex Pointer to the mutex used for synchronization.
- * @param nBodies The number of bodies in the simulation.
- */
 __global__ void ComputeBoundingBoxKernel(Node *node, Body *bodies, int *mutex, int nBodies)
 {
     // Memoria compartida para cada dimensión
@@ -29,12 +15,12 @@ __global__ void ComputeBoundingBoxKernel(Node *node, Body *bodies, int *mutex, i
     int b = blockIdx.x * blockDim.x + tx;
 
     // Inicialización correcta para encontrar mínimos y máximos
-    topLeftFrontX[tx] = INFINITY; // Para encontrar mínimo en X
-    topLeftFrontY[tx] = INFINITY; // Para encontrar mínimo en Y
-    topLeftFrontZ[tx] = INFINITY; // Para encontrar mínimo en Z
+    topLeftFrontX[tx] = INFINITY;  // Para encontrar mínimo en X
+    topLeftFrontY[tx] = -INFINITY; // Para encontrar mínimo en Y
+    topLeftFrontZ[tx] = INFINITY;  // Para encontrar mínimo en Z
 
     botRightBackX[tx] = -INFINITY; // Para encontrar máximo en X
-    botRightBackY[tx] = -INFINITY; // Para encontrar máximo en Y
+    botRightBackY[tx] = INFINITY;  // Para encontrar máximo en Y
     botRightBackZ[tx] = -INFINITY; // Para encontrar máximo en Z
 
     __syncthreads();
@@ -59,14 +45,14 @@ __global__ void ComputeBoundingBoxKernel(Node *node, Body *bodies, int *mutex, i
         if (tx < s)
         {
             // Encontrar mínimos para topLeftFront
-            topLeftFrontX[tx] = fmin(topLeftFrontX[tx], topLeftFrontX[tx + s]);
-            topLeftFrontY[tx] = fmin(topLeftFrontY[tx], topLeftFrontY[tx + s]);
-            topLeftFrontZ[tx] = fmin(topLeftFrontZ[tx], topLeftFrontZ[tx + s]);
+            topLeftFrontX[tx] = fminf(topLeftFrontX[tx], topLeftFrontX[tx + s]);
+            topLeftFrontY[tx] = fminf(topLeftFrontY[tx], topLeftFrontY[tx + s]);
+            topLeftFrontZ[tx] = fminf(topLeftFrontZ[tx], topLeftFrontZ[tx + s]);
 
             // Encontrar máximos para botRightBack
-            botRightBackX[tx] = fmax(botRightBackX[tx], botRightBackX[tx + s]);
-            botRightBackY[tx] = fmax(botRightBackY[tx], botRightBackY[tx + s]);
-            botRightBackZ[tx] = fmax(botRightBackZ[tx], botRightBackZ[tx + s]);
+            botRightBackX[tx] = fmaxf(botRightBackX[tx], botRightBackX[tx + s]);
+            botRightBackY[tx] = fmaxf(botRightBackY[tx], botRightBackY[tx + s]);
+            botRightBackZ[tx] = fmaxf(botRightBackZ[tx], botRightBackZ[tx + s]);
         }
     }
 
@@ -75,14 +61,15 @@ __global__ void ComputeBoundingBoxKernel(Node *node, Body *bodies, int *mutex, i
     {
         while (atomicCAS(mutex, 0, 1) != 0)
             ;
-        // Actualizar mínimos y máximos con margen
-        node[0].topLeftFront.x = fmin(node[0].topLeftFront.x, topLeftFrontX[0] - 1.0e10);
-        node[0].topLeftFront.y = fmin(node[0].topLeftFront.y, topLeftFrontY[0] - 1.0e10);
-        node[0].topLeftFront.z = fmin(node[0].topLeftFront.z, topLeftFrontZ[0] - 1.0e10);
+        // Actualizar mínimos con margen
+        node[0].topLeftFront.x = fminf(node[0].topLeftFront.x, topLeftFrontX[0] - 1.0e10);
+        node[0].botRightBack.y = fmaxf(node[0].botRightBack.y, botRightBackY[0] - 1.0e10);
 
-        node[0].botRightBack.x = fmax(node[0].botRightBack.x, botRightBackX[0] + 1.0e10);
-        node[0].botRightBack.y = fmax(node[0].botRightBack.y, botRightBackY[0] + 1.0e10);
-        node[0].botRightBack.z = fmax(node[0].botRightBack.z, botRightBackZ[0] + 1.0e10);
+        node[0].topLeftFront.y = fminf(node[0].topLeftFront.y, topLeftFrontY[0] + 1.0e10);
+        node[0].botRightBack.x = fmaxf(node[0].botRightBack.x, botRightBackX[0] + 1.0e10);
+
+        node[0].topLeftFront.z = fminf(node[0].topLeftFront.z, topLeftFrontZ[0] + 1.0e10);
+        node[0].botRightBack.z = fmaxf(node[0].botRightBack.z, botRightBackZ[0] - 1.0e10);
 
         atomicExch(mutex, 0);
     }

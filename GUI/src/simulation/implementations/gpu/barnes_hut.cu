@@ -5,26 +5,21 @@ BarnesHut::BarnesHut(int numBodies, BodyDistribution dist, unsigned int seed)
 {
     nNodes = MAX_NODES;
     leafLimit = MAX_NODES - N_LEAF;
-
-    // Allocate host memory for nodes
     h_nodes = new Node[nNodes];
 
-    // Allocate device memory
     CHECK_CUDA_ERROR(cudaMalloc(&d_nodes, nNodes * sizeof(Node)));
     CHECK_CUDA_ERROR(cudaMalloc(&d_mutex, nNodes * sizeof(int)));
-    CHECK_CUDA_ERROR(cudaMalloc(&d_bodiesBuffer, nBodies * sizeof(Body)));
+    CHECK_CUDA_ERROR(cudaMalloc(&d_bodiesBuffer, numBodies * sizeof(Body))); // for octree construction
 }
 
 BarnesHut::~BarnesHut()
 {
-    // Free host memory
     if (h_nodes)
     {
         delete[] h_nodes;
         h_nodes = nullptr;
     }
 
-    // Free device memory
     if (d_nodes)
     {
         CHECK_CUDA_ERROR(cudaFree(d_nodes));
@@ -57,9 +52,9 @@ void BarnesHut::resetOctree()
 
     // Launch reset kernel
     int blockSize = BLOCK_SIZE;
-    int gridSize = (nNodes + blockSize - 1) / blockSize;
-
+    dim3 gridSize = ceil((float)nNodes / blockSize);
     ResetKernel<<<gridSize, blockSize>>>(d_nodes, d_mutex, nNodes, nBodies);
+
     CHECK_LAST_CUDA_ERROR();
 }
 
@@ -77,12 +72,8 @@ void BarnesHut::computeBoundingBox()
 
 void BarnesHut::constructOctree()
 {
-    // Measure execution time
-    CudaTimer timer(metrics.octreeTimeMs);
     int blockSize = BLOCK_SIZE;
-    ConstructOctTreeKernel<<<1, blockSize>>>(d_nodes, d_bodies, d_tempBodies, 0,
-                                             nNodes, nBodies, leafLimit);
-    CHECK_LAST_CUDA_ERROR();
+    ConstructOctTreeKernel<<<1, blockSize>>>(d_nodes, d_bodies, d_bodiesBuffer, 0, nNodes, nBodies, leafLimit);
 }
 
 void BarnesHut::computeForces()
@@ -90,12 +81,10 @@ void BarnesHut::computeForces()
     // Measure execution time
     CudaTimer timer(metrics.forceTimeMs);
 
-    // Launch force computation kernel with SFC support
-    int blockSize = 256;
-    int gridSize = (nBodies + blockSize - 1) / blockSize;
-
-    ComputeForceKernel<<<gridSize, blockSize>>>(
-        d_nodes, d_bodies, nNodes, nBodies, leafLimit);
+    int blockSize = 32;
+    dim3 gridSize = ceil((float)nBodies / blockSize);
+    ComputeForceKernel<<<gridSize, blockSize>>>(d_nodes, d_bodies, nNodes, nBodies, leafLimit);
+    
     CHECK_LAST_CUDA_ERROR();
 }
 
@@ -108,19 +97,32 @@ void BarnesHut::swapBodyBuffers()
 
 void BarnesHut::update()
 {
-    // Ensure initialization
     checkInitialization();
 
-    // Measure total execution time
     CudaTimer timer(metrics.totalTimeMs);
 
-    // Execute the Barnes-Hut algorithm steps
-    resetOctree();
-    computeBoundingBox();
-    constructOctree();
+    // Reset the octree
+    {
+        resetOctree();
+        cudaDeviceSynchronize();
+    }
 
-    // *** Add this line to use the ordered bodies ***
-    swapBodyBuffers();
+    // Compute bounding box
+    {
+        computeBoundingBox();
+        cudaDeviceSynchronize();
+    }
 
-    computeForces();
+    // Construct octree
+    {
+        constructOctree();
+        cudaDeviceSynchronize();
+
+    }
+
+    // Compute forces
+    {
+        computeForces();
+        cudaDeviceSynchronize();
+    }
 }

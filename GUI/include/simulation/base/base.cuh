@@ -9,26 +9,11 @@
 #include <vector>
 #include <memory>
 
-__global__ void ResetKernel(
-    Node *nodes, int *mutex, int nNodes, int nBodies);
-
-__global__ void ComputeBoundingBoxKernel(
-    Node *nodes, Body *bodies, int *mutex, int nBodies);
-
-__global__ void ComputeForceKernel(
-    Node *node, Body *bodies, int nNodes, int nBodies, int leafLimit);
-
-__global__ void ConstructOctTreeKernel(
-    Node *node, Body *bodies, Body *buffer, int nodeIndex,
-    int nNodes, int nBodies, int leafLimit);
+__global__ void ResetKernel(Node *node, int *mutex, int nNodes, int nBodies);
+__global__ void ComputeBoundingBoxKernel(Node *node, Body *bodies, int *mutex, int nBodies);
+__global__ void ConstructOctTreeKernel(Node *node, Body *bodies, Body *buffer, int nodeIndex, int nNodes, int nBodies, int leafLimit);
+__global__ void ComputeForceKernel(Node *node, Body *bodies, int nNodes, int nBodies, int leafLimit);
     
-/**
- * @brief Base class for N-body simulations
- *
- * This abstract class provides the foundation for various N-body simulation
- * implementations by managing the basic allocation, transfer, and lifecycle
- * of body data.
- */
 class SimulationBase
 {
 protected:
