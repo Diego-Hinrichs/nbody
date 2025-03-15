@@ -561,7 +561,7 @@ int main(int argc, char **argv)
     try
     {
         std::cout << "Attempting to use dedicated GPU..." << std::endl;
-
+        checkCudaAvailability();
         // Parse command-line arguments
         SimulationConfig config = parseArgs(argc, argv);
 

@@ -230,17 +230,31 @@ __global__ void ConstructOctTreeKernel(Node *node, Body *bodies, Body *buffer, i
     int tx = threadIdx.x;
     // Ajustar el índice del nodo según el bloque
     nodeIndex += blockIdx.x;
+    
+    // Safety check: prevent invalid node access
     if (nodeIndex >= nNodes)
         return;
 
     Node &curNode = node[nodeIndex];
     int start = curNode.start;
     int end = curNode.end;
-    Vector topLeftFront = curNode.topLeftFront;
-    Vector botRightBack = curNode.botRightBack;
-
+    
+    // Safety check: validate start and end values
     if (start == -1 && end == -1)
         return;
+    
+    // Safety check: ensure valid body range
+    if (start < 0 || end >= nBodies || start > end) {
+        if (tx == 0) {
+            curNode.isLeaf = true;
+            curNode.start = -1;
+            curNode.end = -1;
+        }
+        return;
+    }
+    
+    Vector topLeftFront = curNode.topLeftFront;
+    Vector botRightBack = curNode.botRightBack;
 
     // Calcula el centro de masa para el nodo actual (actualiza curNode)
     ComputeCenterMass(curNode, bodies, totalMass, centerMass, start, end);
@@ -248,9 +262,11 @@ __global__ void ConstructOctTreeKernel(Node *node, Body *bodies, Body *buffer, i
     // Si ya se alcanzó el límite de subdivisión o hay un único cuerpo, copiamos el bloque y retornamos
     if (nodeIndex >= leafLimit || start == end)
     {
-        for (int i = start; i <= end; ++i)
+        for (int i = start + tx; i <= end; i += blockDim.x)
         {
-            buffer[i] = bodies[i];
+            if (i >= 0 && i < nBodies) {  // Safety check
+                buffer[i] = bodies[i];
+            }
         }
         return;
     }
@@ -260,9 +276,9 @@ __global__ void ConstructOctTreeKernel(Node *node, Body *bodies, Body *buffer, i
     // Paso 2: calcular los offsets base a partir de 'start'
     ComputeOffset(count, start);
 
-    // Copiar los offsets base (calculados en count[8..15]) a un arreglo compartido para usarlos en la asignación de nodos hijos.
+    // Copiar los offsets base (calculados en count[8..15]) a un arreglo compartido 
     __shared__ int baseOffset[8];
-    __shared__ int workOffset[8]; // copia que se usará para las operaciones atómicas en GroupBodies
+    __shared__ int workOffset[8]; // copia que se usará para las operaciones atómicas
     if (tx < 8)
     {
         baseOffset[tx] = count[tx + 8];  // guardar el offset original para el octante tx
@@ -276,18 +292,44 @@ __global__ void ConstructOctTreeKernel(Node *node, Body *bodies, Body *buffer, i
     // Paso 4: asignar los rangos a los nodos hijos (únicamente en tx==0)
     if (tx == 0)
     {
+        bool hasEnoughNodes = true;
+        
+        // Check if we have enough nodes for all children
+        if (nodeIndex * 8 + 8 >= nNodes) {
+            curNode.isLeaf = true;
+            return;
+        }
+        
         // Para cada uno de los 8 octantes (i de 0 a 7)
         for (int i = 0; i < 8; i++)
         {
+            int childIdx = nodeIndex * 8 + (i + 1);
+            // Safety check: prevent array bounds violation
+            if (childIdx >= nNodes) {
+                hasEnoughNodes = false;
+                break;
+            }
+            
             // El hijo correspondiente se ubica en: (nodeIndex * 8 + (i+1))
-            Node &childNode = node[nodeIndex * 8 + (i + 1)];
+            Node &childNode = node[childIdx];
+            
             // Actualizar los límites (bounding box) del hijo
             UpdateChildBound(topLeftFront, botRightBack, childNode, i + 1);
+            
             if (count[i] > 0)
             {
-                // Asignar el rango usando el offset base
-                childNode.start = baseOffset[i];
-                childNode.end = childNode.start + count[i] - 1;
+                // Safety check: validate body indices
+                int startIdx = baseOffset[i];
+                int endIdx = startIdx + count[i] - 1;
+                
+                if (startIdx >= 0 && endIdx < nBodies) {
+                    // Assign range using base offset
+                    childNode.start = startIdx;
+                    childNode.end = endIdx;
+                } else {
+                    childNode.start = -1;
+                    childNode.end = -1;
+                }
             }
             else
             {
@@ -297,7 +339,16 @@ __global__ void ConstructOctTreeKernel(Node *node, Body *bodies, Body *buffer, i
         }
 
         curNode.isLeaf = false;
-        // Lanzar la recursión para los hijos: se usan 8 bloques
-        ConstructOctTreeKernel<<<8, BLOCK_SIZE>>>(node, buffer, bodies, nodeIndex * 8 + 1, nNodes, nBodies, leafLimit);
+        
+        // Only launch recursive kernel if we have enough nodes
+        if (hasEnoughNodes) {
+            // Limit recursive depth by checking max node index
+            if (nodeIndex * 8 + 8 < nNodes) {
+                ConstructOctTreeKernel<<<8, BLOCK_SIZE>>>(node, buffer, bodies, nodeIndex * 8 + 1, nNodes, nBodies, leafLimit);
+            }
+        } else {
+            // Not enough nodes, mark as leaf
+            curNode.isLeaf = true;
+        }
     }
 }

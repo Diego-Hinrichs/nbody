@@ -38,6 +38,39 @@ inline void checkLastCudaError(const char *const file, int line)
     }
 }
 
+inline bool checkCudaAvailability()
+{
+    int deviceCount = 0;
+    cudaError_t error = cudaGetDeviceCount(&deviceCount);
+
+    if (error != cudaSuccess)
+    {
+        std::cerr << "CUDA Error: " << cudaGetErrorString(error) << std::endl;
+        return false;
+    }
+
+    if (deviceCount == 0)
+    {
+        std::cerr << "No CUDA-capable devices found" << std::endl;
+        return false;
+    }
+
+    // Print GPU info
+    cudaDeviceProp deviceProp;
+    for (int i = 0; i < deviceCount; i++)
+    {
+        cudaGetDeviceProperties(&deviceProp, i);
+        std::cout << "CUDA Device " << i << ": " << deviceProp.name << std::endl;
+        std::cout << "  Compute capability: " << deviceProp.major << "." << deviceProp.minor << std::endl;
+        std::cout << "  Total global memory: " << deviceProp.totalGlobalMem / (1024 * 1024) << " MB" << std::endl;
+    }
+
+    // Set device to use
+    cudaSetDevice(0);
+
+    return true;
+}
+
 // Macros for more convenient error checking
 #define CHECK_CUDA_ERROR(val) checkCudaError((val), #val, __FILE__, __LINE__)
 #define CHECK_LAST_CUDA_ERROR() checkLastCudaError(__FILE__, __LINE__)
@@ -58,30 +91,53 @@ private:
     cudaEvent_t stop_;
     float &elapsed_time_;
     bool stopped_;
+    bool initialized_;
 
 public:
-    CudaTimer(float &elapsed_time) : elapsed_time_(elapsed_time), stopped_(false)
+    CudaTimer(float &elapsed_time) : elapsed_time_(elapsed_time), stopped_(false), initialized_(false)
     {
-        CHECK_CUDA_ERROR(cudaEventCreate(&start_));
-        CHECK_CUDA_ERROR(cudaEventCreate(&stop_));
-        CHECK_CUDA_ERROR(cudaEventRecord(start_));
+        // Create start and stop events with error checking
+        cudaError_t startErr = cudaEventCreate(&start_);
+        cudaError_t stopErr = cudaEventCreate(&stop_);
+
+        if (startErr != cudaSuccess || stopErr != cudaSuccess)
+        {
+            // Log the specific error
+            std::cerr << "CUDA Timer initialization failed: "
+                      << cudaGetErrorString(startErr) << " / "
+                      << cudaGetErrorString(stopErr) << std::endl;
+
+            // Set elapsed time to 0 as fallback
+            elapsed_time_ = 0.0f;
+            return;
+        }
+
+        initialized_ = true;
+        cudaEventRecord(start_);
     }
 
     ~CudaTimer()
     {
-        if (!stopped_)
+        if (!stopped_ && initialized_)
         {
             stop();
         }
-        CHECK_CUDA_ERROR(cudaEventDestroy(start_));
-        CHECK_CUDA_ERROR(cudaEventDestroy(stop_));
+
+        if (initialized_)
+        {
+            cudaEventDestroy(start_);
+            cudaEventDestroy(stop_);
+        }
     }
 
     void stop()
     {
-        CHECK_CUDA_ERROR(cudaEventRecord(stop_));
-        CHECK_CUDA_ERROR(cudaEventSynchronize(stop_));
-        CHECK_CUDA_ERROR(cudaEventElapsedTime(&elapsed_time_, start_, stop_));
+        if (!initialized_)
+            return;
+
+        cudaEventRecord(stop_);
+        cudaEventSynchronize(stop_);
+        cudaEventElapsedTime(&elapsed_time_, start_, stop_);
         stopped_ = true;
     }
 };
