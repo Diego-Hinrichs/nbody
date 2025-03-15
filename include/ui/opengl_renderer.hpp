@@ -28,7 +28,7 @@ public:
     void render(float aspectRatio);
     void setParticleSize(float size) { particleSize = size; }
     float getParticleSize() const { return particleSize; }
-    
+
 private:
     // Reference to simulation state for dynamic parameters
     SimulationState &simulationState_;

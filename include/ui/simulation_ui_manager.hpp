@@ -19,14 +19,14 @@ class SimulationUIManager
 {
 public:
     // SimulationUIManager(SimulationState &state);
-    SimulationUIManager(SimulationState& simulationState, OpenGLRenderer& rendererRef)
-    : simulationState_(simulationState), renderer(rendererRef) {}
+    SimulationUIManager(SimulationState &simulationState, OpenGLRenderer &rendererRef)
+        : simulationState_(simulationState), renderer(rendererRef) {}
 
     void renderUI(GLFWwindow *window);
 
 private:
     SimulationState &simulationState_;
-    OpenGLRenderer& renderer;
+    OpenGLRenderer &renderer;
 
     // void renderSimulationControls();
     void renderPerformanceInfo();

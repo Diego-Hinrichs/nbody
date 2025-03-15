@@ -53,7 +53,11 @@ struct SimulationConfig
 SimulationConfig parseArgs(int argc, char **argv)
 {
     SimulationConfig config;
-    // Add argument parsing logic if needed
+    config.initialBodies = argv[1] ? std::stoi(argv[1]) : 1024;
+    config.useSFC = argv[2] ? std::stoi(argv[2]) : false;
+    config.fullscreen = argv[3] ? std::stoi(argv[3]) : true;
+    config.verbose = argv[4] ? std::stoi(argv[4]) : false;
+
     return config;
 }
 
@@ -557,7 +561,7 @@ int main(int argc, char **argv)
     try
     {
         std::cout << "Attempting to use dedicated GPU..." << std::endl;
-
+        checkCudaAvailability();
         // Parse command-line arguments
         SimulationConfig config = parseArgs(argc, argv);
 

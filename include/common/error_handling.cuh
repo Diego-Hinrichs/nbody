@@ -38,6 +38,39 @@ inline void checkLastCudaError(const char *const file, int line)
     }
 }
 
+inline bool checkCudaAvailability()
+{
+    int deviceCount = 0;
+    cudaError_t error = cudaGetDeviceCount(&deviceCount);
+
+    if (error != cudaSuccess)
+    {
+        std::cerr << "CUDA Error: " << cudaGetErrorString(error) << std::endl;
+        return false;
+    }
+
+    if (deviceCount == 0)
+    {
+        std::cerr << "No CUDA-capable devices found" << std::endl;
+        return false;
+    }
+
+    // Print GPU info
+    cudaDeviceProp deviceProp;
+    for (int i = 0; i < deviceCount; i++)
+    {
+        cudaGetDeviceProperties(&deviceProp, i);
+        std::cout << "CUDA Device " << i << ": " << deviceProp.name << std::endl;
+        std::cout << "  Compute capability: " << deviceProp.major << "." << deviceProp.minor << std::endl;
+        std::cout << "  Total global memory: " << deviceProp.totalGlobalMem / (1024 * 1024) << " MB" << std::endl;
+    }
+
+    // Set device to use
+    cudaSetDevice(0);
+
+    return true;
+}
+
 // Macros for more convenient error checking
 #define CHECK_CUDA_ERROR(val) checkCudaError((val), #val, __FILE__, __LINE__)
 #define CHECK_LAST_CUDA_ERROR() checkLastCudaError(__FILE__, __LINE__)
