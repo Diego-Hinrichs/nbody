@@ -1,5 +1,7 @@
 .vscode
+imgui.ini
 **/tests/
 **/build/
 **/*.avi
-imgui.ini
+**/*.txt
+**/*.csv
