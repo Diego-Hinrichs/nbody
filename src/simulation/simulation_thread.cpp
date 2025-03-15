@@ -137,9 +137,6 @@ void SimulationThread::run()
             double frameTime = std::chrono::duration<double, std::milli>(now - frameStart).count();
 
             // Update state with last iteration time
-            state->lastIterationTime = frameTime;
-
-            // Update other performance metrics
             updatePerformanceMetrics(frameTime);
         }
     }
@@ -238,15 +235,20 @@ void SimulationThread::updateVisualizationData()
 
 void SimulationThread::updatePerformanceMetrics(double frameTime)
 {
-    frameTimeAccum += frameTime;
-    frameCount++;
-
+    // Track the simulation iteration time separately from FPS
+    state->lastIterationTime = frameTime;
+    
+    // Update FPS tracking based on visualization frequency
+    if (frameCounter == 0) {
+        // We've just updated the visualization, so count this as a rendered frame
+        frameCount++;
+    }
+    
     auto now = std::chrono::steady_clock::now();
     if (std::chrono::duration<double>(now - lastTime).count() >= 1.0)
     {
-        // Update FPS every second
+        // Update FPS every second - this now represents actual visualization updates
         state->fps = frameCount / std::chrono::duration<double>(now - lastTime).count();
-        frameTimeAccum = 0.0;
         frameCount = 0;
         lastTime = now;
     }

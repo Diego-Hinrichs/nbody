@@ -266,6 +266,8 @@ void OpenGLRenderer::init()
         if (err != GL_NO_ERROR)
             std::cerr << "Error setting blend function: " << err << std::endl;
 
+        glfwSwapInterval(1);
+        
         // Create the shader program with comprehensive error checking
         createShaderProgram();
 
