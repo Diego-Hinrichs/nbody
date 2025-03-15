@@ -146,52 +146,15 @@ std::unique_ptr<SimulationBase> SimulationFactory::createSimulation(
     }
     break;
 
-    case SimulationMethod::GPU_SFC_BARNES_HUT:
-    {
-        auto sfcSim = std::make_unique<SFCBarnesHut>(
+    case SimulationMethod::GPU_BARNES_HUT:
+    default:
+        // Use regular Barnes-Hut
+        simulation = std::make_unique<BarnesHut>(
             numBodies,
-            true,         // SFC is always enabled for this method
-            orderingMode, // Ordering mode
-            reorderFreq,  // Reorder frequency
             distribution, // Distribution type
             seed          // Random seed
         );
 
-        // Set curve type
-        sfcSim->setCurveType(curveType);
-
-        simulation = std::move(sfcSim);
-    }
-    break;
-
-    case SimulationMethod::GPU_BARNES_HUT:
-    default:
-        if (useSFC)
-        {
-            // Use SFCBarnesHut if SFC is enabled
-            auto sfcSim = std::make_unique<SFCBarnesHut>(
-                numBodies,
-                true,         // Enable SFC
-                orderingMode, // Ordering mode
-                reorderFreq,  // Reorder frequency
-                distribution, // Distribution type
-                seed          // Random seed
-            );
-
-            // Set curve type
-            sfcSim->setCurveType(curveType);
-
-            simulation = std::move(sfcSim);
-        }
-        else
-        {
-            // Use regular Barnes-Hut
-            simulation = std::make_unique<BarnesHut>(
-                numBodies,
-                distribution, // Distribution type
-                seed          // Random seed
-            );
-        }
         break;
     }
 

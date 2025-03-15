@@ -246,7 +246,7 @@ void SimulationUIManager::renderSimulationMethodSelector()
             break;
         case 3: // Barnes-Hut (GPU)
         default:
-            newMethod = useSFC ? SimulationMethod::GPU_SFC_BARNES_HUT : SimulationMethod::GPU_BARNES_HUT;
+            newMethod = SimulationMethod::GPU_BARNES_HUT;
             break;
         }
 
@@ -358,9 +358,8 @@ void SimulationUIManager::renderAdvancedOptions()
             break;
 
         case SimulationMethod::GPU_BARNES_HUT:
-        case SimulationMethod::GPU_SFC_BARNES_HUT:
         default:
-            newMethod = sfcEnabled ? SimulationMethod::GPU_SFC_BARNES_HUT : SimulationMethod::GPU_BARNES_HUT;
+            newMethod = SimulationMethod::GPU_BARNES_HUT;
             break;
         }
 
@@ -395,8 +394,7 @@ void SimulationUIManager::renderAdvancedOptions()
         // Only show ordering mode for Barnes-Hut methods
         bool isBarnesHut = (currentMethod == SimulationMethod::CPU_BARNES_HUT ||
                             currentMethod == SimulationMethod::CPU_SFC_BARNES_HUT ||
-                            currentMethod == SimulationMethod::GPU_BARNES_HUT ||
-                            currentMethod == SimulationMethod::GPU_SFC_BARNES_HUT);
+                            currentMethod == SimulationMethod::GPU_BARNES_HUT);
 
         if (isBarnesHut)
         {
@@ -444,12 +442,10 @@ void SimulationUIManager::renderSFCOptions()
     bool supportsParticleOrdering = (currentMethod == SimulationMethod::CPU_SFC_DIRECT_SUM ||
                                      currentMethod == SimulationMethod::GPU_SFC_DIRECT_SUM ||
                                      currentMethod == SimulationMethod::CPU_SFC_BARNES_HUT ||
-                                     currentMethod == SimulationMethod::GPU_SFC_BARNES_HUT ||
                                      currentMethod == SimulationMethod::CPU_BARNES_HUT ||
                                      currentMethod == SimulationMethod::GPU_BARNES_HUT);
 
     bool supportsOctantOrdering = (currentMethod == SimulationMethod::CPU_SFC_BARNES_HUT ||
-                                   currentMethod == SimulationMethod::GPU_SFC_BARNES_HUT ||
                                    currentMethod == SimulationMethod::CPU_BARNES_HUT ||
                                    currentMethod == SimulationMethod::GPU_BARNES_HUT);
 

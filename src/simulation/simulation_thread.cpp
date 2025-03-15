@@ -179,11 +179,6 @@ bool SimulationThread::checkForParameterChanges()
             }
             break;
 
-        case SimulationMethod::GPU_SFC_BARNES_HUT:
-            shouldRestart = (currentOrderingMode != state->sfcOrderingMode.load() ||
-                             currentReorderFreq != state->reorderFrequency.load());
-            break;
-
         default:
             break;
         }

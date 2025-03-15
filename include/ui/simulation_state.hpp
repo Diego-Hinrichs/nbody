@@ -37,8 +37,7 @@ enum class SimulationMethod
     CPU_BARNES_HUT,
     CPU_SFC_BARNES_HUT,
 
-    GPU_BARNES_HUT,
-    GPU_SFC_BARNES_HUT
+    GPU_BARNES_HUT
 };
 
 struct SimulationState
