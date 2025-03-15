@@ -40,24 +40,22 @@ unset(GLFW_FOUND CACHE)
 # Use FetchContent for all dependencies
 FetchContent_Declare(
     glfw
-    GIT_REPOSITORY https://github.com/glfw/glfw.git
-    GIT_TAG 3.4
+    URL https://github.com/glfw/glfw/archive/refs/tags/3.4.zip
     OVERRIDE_FIND_PACKAGE
 )
 
 # GLM (OpenGL Mathematics)
 FetchContent_Declare(
     glm
-    GIT_REPOSITORY https://github.com/g-truc/glm.git
-    GIT_TAG 0.9.9.8
+    URL https://github.com/g-truc/glm/archive/refs/tags/0.9.9.8.zip
 )
 
 # ImGui
 FetchContent_Declare(
     imgui
-    GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG v1.90
+    URL https://github.com/ocornut/imgui/archive/refs/tags/v1.91.9.zip
 )
+
 
 # Disable package finding for these libraries
 set(CMAKE_FIND_PACKAGE_PREFER_CONFIG TRUE)
