@@ -43,12 +43,22 @@ BarnesHut::BarnesHut(int numBodies, BodyDistribution dist, unsigned int seed)
 
 BarnesHut::~BarnesHut()
 {
-    delete[] h_bodies;
     delete[] h_nodes;
-    CHECK_CUDA_ERROR(cudaFree(d_bodies));
-    CHECK_CUDA_ERROR(cudaFree(d_nodes));
-    CHECK_CUDA_ERROR(cudaFree(d_mutex));
-    CHECK_CUDA_ERROR(cudaFree(d_bodiesBuffer));
+     // Free resources specific to BarnesHut
+    if (d_nodes) {
+        CHECK_CUDA_ERROR(cudaFree(d_nodes));
+        d_nodes = nullptr;
+    }
+    
+    if (d_mutex) {
+        CHECK_CUDA_ERROR(cudaFree(d_mutex));
+        d_mutex = nullptr;
+    }
+    
+    if (d_bodiesBuffer) {
+        CHECK_CUDA_ERROR(cudaFree(d_bodiesBuffer));
+        d_bodiesBuffer = nullptr;
+    }
 }
 
 void BarnesHut::resetOctree()
