@@ -14,6 +14,7 @@
 
 #include "../include/common/constants.cuh"
 #include "../include/simulation/base/base.cuh"
+#include "../include/simulation/simulation_thread.hpp"
 
 #include "../include/simulation/implementations/cpu/direct_sum.hpp"
 #include "../include/simulation/implementations/cpu/barnes_hut.hpp"
@@ -44,8 +45,8 @@ void logMessage(const std::string &message, bool isError = false)
 struct SimulationConfig
 {
     int initialBodies = 1024;
-    bool useSFC = false;
     bool fullscreen = true;
+    bool useSFC = false;
     bool verbose = false;
 };
 
@@ -53,10 +54,11 @@ struct SimulationConfig
 SimulationConfig parseArgs(int argc, char **argv)
 {
     SimulationConfig config;
-    config.initialBodies = argv[1] ? std::stoi(argv[1]) : 1024;
-    config.useSFC = argv[2] ? std::stoi(argv[2]) : false;
-    config.fullscreen = argv[3] ? std::stoi(argv[3]) : true;
-    config.verbose = argv[4] ? std::stoi(argv[4]) : false;
+
+    if (argc > 1)
+        config.initialBodies = std::stoi(argv[1]);
+    if (argc > 2)
+        config.fullscreen = std::stoi(argv[2]);
 
     return config;
 }
@@ -95,339 +97,6 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
         {
             g_simulationState->running.store(false);
         }
-    }
-}
-
-// Factory function to create the appropriate simulation based on method
-std::unique_ptr<SimulationBase> createSimulation(
-    SimulationMethod method,
-    int numBodies,
-    bool useSFC,
-    SFCOrderingMode orderingMode,
-    int reorderFreq,
-    BodyDistribution distribution,
-    unsigned int seed,
-    bool useOpenMP,
-    int numThreads)
-{
-    std::unique_ptr<SimulationBase> simulation;
-
-    switch (method)
-    {
-    case SimulationMethod::CPU_DIRECT_SUM:
-        simulation = std::make_unique<CPUDirectSum>(
-            numBodies,
-            useOpenMP,    // Use OpenMP
-            numThreads,   // Thread count
-            distribution, // Distribution type
-            seed          // Random seed
-        );
-        break;
-
-    case SimulationMethod::CPU_SFC_DIRECT_SUM:
-        simulation = std::make_unique<SFCCPUDirectSum>(
-            numBodies,
-            useOpenMP,    // Use OpenMP
-            numThreads,   // Thread count
-            true,         // Enable SFC
-            reorderFreq,  // Reorder frequency
-            distribution, // Distribution type
-            seed          // Random seed
-        );
-        break;
-
-    case SimulationMethod::GPU_DIRECT_SUM:
-        simulation = std::make_unique<GPUDirectSum>(
-            numBodies,
-            distribution, // Distribution type
-            seed          // Random seed
-        );
-        break;
-
-    case SimulationMethod::GPU_SFC_DIRECT_SUM:
-        simulation = std::make_unique<SFCGPUDirectSum>(
-            numBodies,
-            true,         // SFC is always enabled for this method
-            reorderFreq,  // Reorder frequency
-            distribution, // Distribution type
-            seed          // Random seed
-        );
-        break;
-
-    case SimulationMethod::CPU_BARNES_HUT:
-        simulation = std::make_unique<CPUBarnesHut>(
-            numBodies,
-            useOpenMP,    // Use OpenMP
-            numThreads,   // Thread count
-            distribution, // Distribution type
-            seed          // Random seed
-        );
-        break;
-
-    case SimulationMethod::CPU_SFC_BARNES_HUT:
-        simulation = std::make_unique<CPUBarnesHut>(
-            numBodies,
-            useOpenMP,    // Use OpenMP
-            numThreads,   // Thread count
-            distribution, // Distribution type
-            seed,         // Random seed
-            true,         // Enable SFC
-            orderingMode, // Ordering mode
-            reorderFreq   // Reorder frequency
-        );
-        break;
-
-    case SimulationMethod::GPU_SFC_BARNES_HUT:
-        simulation = std::make_unique<SFCBarnesHut>(
-            numBodies,
-            true,         // SFC is always enabled for this method
-            orderingMode, // Ordering mode
-            reorderFreq,  // Reorder frequency
-            distribution, // Distribution type
-            seed          // Random seed
-        );
-        break;
-
-    case SimulationMethod::GPU_BARNES_HUT:
-    default:
-        if (useSFC)
-        {
-            // Use SFCBarnesHut if SFC is enabled
-            simulation = std::make_unique<SFCBarnesHut>(
-                numBodies,
-                true,         // Enable SFC
-                orderingMode, // Ordering mode
-                reorderFreq,  // Reorder frequency
-                distribution, // Distribution type
-                seed          // Random seed
-            );
-        }
-        else
-        {
-            // Use regular Barnes-Hut
-            simulation = std::make_unique<BarnesHut>(
-                numBodies,
-                distribution, // Distribution type
-                seed          // Random seed
-            );
-        }
-        break;
-    }
-
-    return simulation;
-}
-
-// Simulation thread function
-void simulationThread(SimulationState *state)
-{
-    try
-    {
-        std::unique_ptr<SimulationBase> simulation = nullptr;
-
-        // Current simulation parameters
-        int currentNumBodies = state->numBodies.load();
-        SimulationMethod currentMethod = state->simulationMethod.load();
-        bool currentUseSFC = state->useSFC.load();
-        SFCOrderingMode currentOrderingMode = state->sfcOrderingMode.load();
-        int currentReorderFreq = state->reorderFrequency.load();
-        BodyDistribution currentDistribution = state->bodyDistribution.load();
-        unsigned int currentSeed = state->randomSeed.load();
-        bool currentUseOpenMP = state->useOpenMP.load();
-        int currentOpenMPThreads = state->openMPThreads.load();
-
-        // Configuration to reduce CPU-GPU transfers
-        const int VISUALIZATION_FREQUENCY = 24; // Update visualization every 24 frames
-        int frameCounter = 0;
-
-        // Create initial simulation
-        simulation = createSimulation(
-            currentMethod,
-            currentNumBodies,
-            currentUseSFC,
-            currentOrderingMode,
-            currentReorderFreq,
-            currentDistribution,
-            currentSeed,
-            currentUseOpenMP,
-            currentOpenMPThreads);
-
-        if (!simulation)
-        {
-            logMessage("Failed to create simulation", true);
-            return;
-        }
-
-        // Setup initial conditions
-        simulation->setup();
-
-        // Variables for performance measurement
-        auto lastTime = std::chrono::steady_clock::now();
-        double frameTimeAccum = 0.0;
-        int frameCount = 0;
-
-        // Main simulation loop
-        while (state->running.load())
-        {
-            auto frameStart = std::chrono::steady_clock::now();
-
-            // If paused, wait and continue
-            if (state->isPaused.load())
-            {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                lastTime = std::chrono::steady_clock::now();
-                continue;
-            }
-
-            // Check if simulation restart is needed
-            bool shouldRestart = state->restart.load() ||
-                                 currentNumBodies != state->numBodies.load() ||
-                                 currentMethod != state->simulationMethod.load() ||
-                                 currentDistribution != state->bodyDistribution.load() ||
-                                 (state->seedWasChanged && currentSeed != state->randomSeed.load());
-
-            // Check method-specific restart conditions
-            if (!shouldRestart)
-            {
-                switch (currentMethod)
-                {
-                case SimulationMethod::CPU_DIRECT_SUM:
-                case SimulationMethod::CPU_BARNES_HUT:
-                    shouldRestart = (currentUseOpenMP != state->useOpenMP.load() ||
-                                     currentOpenMPThreads != state->openMPThreads.load());
-                    break;
-
-                case SimulationMethod::GPU_BARNES_HUT:
-                    shouldRestart = (currentUseSFC != state->useSFC.load());
-                    // Only check SFC parameters if SFC is enabled
-                    if (currentUseSFC && state->useSFC.load())
-                    {
-                        shouldRestart = shouldRestart ||
-                                        currentOrderingMode != state->sfcOrderingMode.load() ||
-                                        currentReorderFreq != state->reorderFrequency.load();
-                    }
-                    break;
-
-                case SimulationMethod::GPU_SFC_BARNES_HUT:
-                    shouldRestart = (currentOrderingMode != state->sfcOrderingMode.load() ||
-                                     currentReorderFreq != state->reorderFrequency.load());
-                    break;
-
-                default:
-                    break;
-                }
-            }
-
-            // Restart simulation if needed
-            if (shouldRestart)
-            {
-                // Update parameters
-                currentNumBodies = state->numBodies.load();
-                currentMethod = state->simulationMethod.load();
-                currentUseSFC = state->useSFC.load();
-                currentOrderingMode = state->sfcOrderingMode.load();
-                currentReorderFreq = state->reorderFrequency.load();
-                currentDistribution = state->bodyDistribution.load();
-                currentSeed = state->randomSeed.load();
-                currentUseOpenMP = state->useOpenMP.load();
-                currentOpenMPThreads = state->openMPThreads.load();
-
-                // Reset the seed change flag
-                state->seedWasChanged = false;
-
-                // Recreate the simulation
-                try
-                {
-                    simulation = createSimulation(
-                        currentMethod,
-                        currentNumBodies,
-                        currentUseSFC,
-                        currentOrderingMode,
-                        currentReorderFreq,
-                        currentDistribution,
-                        currentSeed,
-                        currentUseOpenMP,
-                        currentOpenMPThreads);
-
-                    if (!simulation)
-                    {
-                        logMessage("Failed to recreate simulation", true);
-                        break;
-                    }
-
-                    // Setup the simulation
-                    simulation->setup();
-                }
-                catch (const std::exception &e)
-                {
-                    logMessage("Exception during simulation restart: " + std::string(e.what()), true);
-                    break;
-                }
-
-                state->restart.store(false);
-
-                // Reset time and frame counter
-                lastTime = std::chrono::steady_clock::now();
-                frameCounter = 0;
-            }
-
-            // Update simulation
-            simulation->update();
-
-            // Increment frame counter
-            frameCounter++;
-
-            // Read bodies from device only when necessary
-            if (frameCounter >= VISUALIZATION_FREQUENCY)
-            {
-                frameCounter = 0;
-
-                // Copy data from GPU to CPU
-                simulation->copyBodiesFromDevice();
-
-                // Update shared bodies for rendering
-                try
-                {
-                    std::lock_guard<std::mutex> lock(state->mtx);
-
-                    // Cleanup old data
-                    delete[] state->sharedBodies;
-                    state->sharedBodies = nullptr;
-
-                    // Allocate and copy new data
-                    state->sharedBodies = new Body[currentNumBodies];
-                    memcpy(state->sharedBodies, simulation->getBodies(), currentNumBodies * sizeof(Body));
-                    state->currentBodiesCount = currentNumBodies;
-                }
-                catch (const std::exception &e)
-                {
-                    logMessage("Exception during body data update: " + std::string(e.what()), true);
-                    break;
-                }
-            }
-
-            // Calculate performance metrics
-            auto now = std::chrono::steady_clock::now();
-            double frameTime = std::chrono::duration<double, std::milli>(now - frameStart).count();
-            state->lastIterationTime = frameTime;
-
-            frameTimeAccum += frameTime;
-            frameCount++;
-
-            if (std::chrono::duration<double>(now - lastTime).count() >= 1.0)
-            {
-                // Update FPS every second
-                state->fps = frameCount / std::chrono::duration<double>(now - lastTime).count();
-                frameTimeAccum = 0.0;
-                frameCount = 0;
-                lastTime = now;
-            }
-        }
-
-        // Simulation will be cleaned up by unique_ptr destructor
-    }
-    catch (const std::exception &e)
-    {
-        logMessage("Fatal error in simulation thread: " + std::string(e.what()), true);
     }
 }
 
@@ -595,18 +264,17 @@ int main(int argc, char **argv)
         // Create UI manager
         SimulationUIManager uiManager(simulationState, renderer);
 
-        // Set global simulation state for callbacks
-        g_simulationState = &simulationState;
+        SimulationThread simulationThread(&simulationState);
+        simulationThread.start();
 
-        // Start simulation thread
-        std::thread simThread(simulationThread, &simulationState);
+        g_simulationState = &simulationState;
 
         // Main render loop
         renderLoop(window, simulationState, renderer, uiManager);
 
         // Cleanup
         simulationState.running.store(false);
-        simThread.join();
+        simulationThread.join();
 
         // Shutdown ImGui
         ImGui_ImplOpenGL3_Shutdown();

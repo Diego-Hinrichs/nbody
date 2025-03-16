@@ -4,12 +4,6 @@
 
 #include "../../base/base.cuh"
 
-/**
- * @brief Barnes-Hut N-body simulation implementation
- *
- * This class implements the Barnes-Hut algorithm for approximating
- * N-body gravitational interactions using an octree structure.
- */
 class BarnesHut : public SimulationBase
 {
 protected:

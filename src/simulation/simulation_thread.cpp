@@ -238,13 +238,15 @@ void SimulationThread::updateVisualizationData()
 
 void SimulationThread::updatePerformanceMetrics(double frameTime)
 {
-    frameTimeAccum += frameTime;
-    frameCount++;
+    state->lastIterationTime = frameTime;
+    if (frameCounter == 0)
+    {
+        frameCount++;
+    }
 
     auto now = std::chrono::steady_clock::now();
     if (std::chrono::duration<double>(now - lastTime).count() >= 1.0)
     {
-        // Update FPS every second
         state->fps = frameCount / std::chrono::duration<double>(now - lastTime).count();
         frameTimeAccum = 0.0;
         frameCount = 0;

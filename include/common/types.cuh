@@ -30,6 +30,23 @@ struct Vector
     {
         return Vector(x - other.x, y - other.y, z - other.z);
     }
+    __host__ __device__ Vector &operator+=(const Vector &other)
+
+    {
+        x += other.x;
+        y += other.y;
+        z += other.z;
+        return *this;
+    }
+
+    // Scalar division operator
+    __host__ __device__ Vector operator/(double scalar) const
+    {
+        // Add a small epsilon to prevent division by zero
+        const double EPSILON = 1e-10;
+        double safe_scalar = (fabs(scalar) < EPSILON) ? (scalar >= 0 ? EPSILON : -EPSILON) : scalar;
+        return Vector(x / safe_scalar, y / safe_scalar, z / safe_scalar);
+    }
 
     // Scalar multiplication
     __host__ __device__ Vector operator*(double scalar) const

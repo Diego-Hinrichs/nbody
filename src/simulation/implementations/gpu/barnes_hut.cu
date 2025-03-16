@@ -1,12 +1,5 @@
 #include "../../include/simulation/implementations/gpu/barnes_hut.cuh"
 
-// Updated external function declaration to match the new signature
-extern "C" void BuildOptimizedOctTree(
-    Node *d_nodes, Body *d_bodies, Body *d_tempBodies,
-    int *orderedIndices, bool useSFC,
-    int *octantIndices, bool useOctantOrder,
-    int nNodes, int nBodies, int leafLimit);
-
 BarnesHut::BarnesHut(int numBodies, BodyDistribution dist, unsigned int seed)
     : SimulationBase(numBodies, dist, seed)
 {
@@ -59,69 +52,44 @@ BarnesHut::~BarnesHut()
 
 void BarnesHut::resetOctree()
 {
-    // Measure execution time
     CudaTimer timer(metrics.resetTimeMs);
-
-    // Launch reset kernel
     int blockSize = BLOCK_SIZE;
-    int gridSize = (nNodes + blockSize - 1) / blockSize;
-
+    dim3 gridSize = ceil((float)nNodes / blockSize);
     ResetKernel<<<gridSize, blockSize>>>(d_nodes, d_mutex, nNodes, nBodies);
     CHECK_LAST_CUDA_ERROR();
 }
 
 void BarnesHut::computeBoundingBox()
 {
-    // Measure execution time
     CudaTimer timer(metrics.bboxTimeMs);
-
-    // Launch bounding box computation kernel with SFC support
     int blockSize = BLOCK_SIZE;
-    int gridSize = (nBodies + blockSize - 1) / blockSize;
-
-    ComputeBoundingBoxKernel<<<gridSize, blockSize>>>(
-        d_nodes, d_bodies, getOrderedIndices(), isUsingSFC(), d_mutex, nBodies);
+    dim3 gridSize = ceil((float)nBodies / blockSize);
+    ComputeBoundingBoxKernel<<<gridSize, blockSize>>>(d_nodes, d_bodies, getOrderedIndices(), isUsingSFC(), d_mutex, nBodies);
     CHECK_LAST_CUDA_ERROR();
 }
 
 void BarnesHut::constructOctree()
 {
-    // Measure execution time
     CudaTimer timer(metrics.octreeTimeMs);
-
-    // Launch octree construction kernel with SFC support
-    // Updated to use the new function signature with octant indices
-    BuildOptimizedOctTree(d_nodes, d_bodies, d_tempBodies,
-                          getOrderedIndices(), isUsingSFC(),
-                          nullptr, false, // Base class doesn't use octant ordering
-                          nNodes, nBodies, leafLimit);
+    int blockSize = BLOCK_SIZE;
+    ConstructOctTreeKernel<<<1, blockSize>>>(d_nodes, d_bodies, d_bodiesBuffer, 0, nNodes, nBodies, leafLimit);
     CHECK_LAST_CUDA_ERROR();
 }
 
 void BarnesHut::computeForces()
 {
-    // Measure execution time
     CudaTimer timer(metrics.forceTimeMs);
-
-    // Launch force computation kernel with SFC support
-    int blockSize = 256;
-    int gridSize = (nBodies + blockSize - 1) / blockSize;
-
-    ComputeForceKernel<<<gridSize, blockSize>>>(
-        d_nodes, d_bodies, getOrderedIndices(), isUsingSFC(),
-        nNodes, nBodies, leafLimit);
+    int blockSize = 32; // x cache
+    dim3 gridSize = ceil((float)nBodies / blockSize);
+    ComputeForceKernel<<<gridSize, blockSize>>>(d_nodes, d_bodies, nNodes, nBodies, leafLimit);
     CHECK_LAST_CUDA_ERROR();
 }
 
 void BarnesHut::update()
 {
-    // Ensure initialization
     checkInitialization();
 
-    // Measure total execution time
     CudaTimer timer(metrics.totalTimeMs);
-
-    // Execute the Barnes-Hut algorithm steps
     resetOctree();
     computeBoundingBox();
     constructOctree();

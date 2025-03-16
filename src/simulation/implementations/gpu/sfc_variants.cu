@@ -125,17 +125,16 @@ void SFCBarnesHut::orderOctantsBySFC(Node *nodes, int nNodes)
 // Override constructOctree from the base class
 void SFCBarnesHut::constructOctree()
 {
-    // Measure execution time
     CudaTimer timer(metrics.octreeTimeMs);
 
-    // Determine if we're using octant ordering mode
-    bool useOctantOrder = (useSFC && orderingMode == SFCOrderingMode::OCTANTS && d_octantIndices != nullptr);
-
-    // Launch octree construction kernel with appropriate ordering
-    BuildOptimizedOctTree(d_nodes, d_bodies, d_tempBodies,
-                          d_orderedIndices, useSFC && orderingMode == SFCOrderingMode::PARTICLES,
-                          d_octantIndices, useOctantOrder,
-                          nNodes, nBodies, leafLimit);
+    ConstructOctTreeKernel<<<1, 1024>>>(
+        d_nodes,
+        d_bodies,
+        d_bodiesBuffer,
+        0,
+        nNodes,
+        nBodies,
+        leafLimit);
     CHECK_LAST_CUDA_ERROR();
 }
 
