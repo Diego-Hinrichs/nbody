@@ -298,6 +298,6 @@ __global__ void ConstructOctTreeKernel(Node *node, Body *bodies, Body *buffer, i
 
         curNode.isLeaf = false;
         // Lanzar la recursión para los hijos: se usan 8 bloques
-        ConstructOctTreeKernel<<<8, BLOCK_SIZE>>>(node, buffer, bodies, nodeIndex * 8 + 1, nNodes, nBodies, leafLimit);
+        // ConstructOctTreeKernel<<<8, BLOCK_SIZE>>>(node, buffer, bodies, nodeIndex * 8 + 1, nNodes, nBodies, leafLimit);
     }
 }

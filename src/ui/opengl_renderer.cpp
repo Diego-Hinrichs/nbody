@@ -6,7 +6,7 @@
 // Ejemplo de shader de vértices mejorado que incluye tamaño variable
 // Vertex Shader
 const char *vertexShaderSource = R"(
-    #version 330 core
+    #version 420 core
     layout (location = 0) in vec3 aPosition;
     layout (location = 1) in float aMass;
 
@@ -50,7 +50,7 @@ const char *vertexShaderSource = R"(
         float distanceScale = 10.0 / (1.0 + vDistance * 0.00001);
         
         // Combine all scaling factors
-        gl_PointSize = uPointSize * massScale * clamp(distanceScale, 0.1, 15.0);
+        gl_PointSize = min(uPointSize * massScale * clamp(distanceScale, 0.1, 15.0), 10.0);
         
         // Pass mass to fragment shader
         vMass = aMass;
@@ -59,86 +59,26 @@ const char *vertexShaderSource = R"(
 
 // Shader de fragmentos actualizado con colores de mayor contraste
 const char *fragmentShaderSource = R"(
-    #version 330 core
+    #version 420 core
     in float vMass;
     in float vDistance;
     out vec4 FragColor;
-
+    
     void main() {
-        // Determine body type based on mass
-        vec3 bodyColor;
-        float glowIntensity;
-        float coreBrightness;
+        // Use a pure white color for all particles
+        vec3 bodyColor = vec3(1.0, 1.0, 1.0);
         
-        // Sun-like bodies (very massive)
-        if (vMass > 1.0e28) {
-            // Amarillo-naranja brillante para el sol (más contrastante)
-            bodyColor = vec3(1.0, 0.85, 0.3);
-            glowIntensity = 0.9;
-            coreBrightness = 1.0;
-        }
-        // Planet-sized bodies
-        else if (vMass > 1.0e24) {
-            // Use a color gradient based on exact mass with higher saturation
-            float t = (log(vMass) - log(1.0e24)) / (log(1.0e28) - log(1.0e24));
-            
-            // Create a spectrum of planet colors with better contrast
-            if (t < 0.2) {
-                bodyColor = mix(vec3(0.2, 0.4, 1.0), vec3(0.2, 0.7, 1.0), t*5.0); // Azul intenso
-            } else if (t < 0.4) {
-                bodyColor = mix(vec3(0.2, 0.7, 1.0), vec3(0.2, 1.0, 0.5), (t-0.2)*5.0); // Azul a verde
-            } else if (t < 0.6) {
-                bodyColor = mix(vec3(0.2, 1.0, 0.5), vec3(1.0, 1.0, 0.3), (t-0.4)*5.0); // Verde a amarillo
-            } else if (t < 0.8) {
-                bodyColor = mix(vec3(1.0, 1.0, 0.3), vec3(1.0, 0.5, 0.2), (t-0.6)*5.0); // Amarillo a naranja
-            } else {
-                bodyColor = mix(vec3(1.0, 0.5, 0.2), vec3(1.0, 0.3, 0.1), (t-0.8)*5.0); // Naranja a rojo
-            }
-            
-            glowIntensity = 0.4;
-            coreBrightness = 0.9;
-        }
-        // Small bodies (asteroids, etc.)
-        else {
-            // Colores más claros para cuerpos pequeños
-            float smallBodyFactor = clamp(log(vMass / 1.0e20) / 10.0, 0.0, 1.0);
-            bodyColor = mix(
-                vec3(0.8, 0.8, 0.8),   // Blanco para muy pequeños (contraste alto)
-                vec3(0.6, 0.8, 1.0),   // Azul claro para pequeños más grandes
-                smallBodyFactor
-            );
-            glowIntensity = 0.2;
-            coreBrightness = 0.7;
-        }
-        
-        // Create circular point with glow effect
+        // Create circular point
         vec2 circCoord = 2.0 * gl_PointCoord - 1.0;
         float distSquared = dot(circCoord, circCoord);
         
+        // Discard fragments outside the circle
         if (distSquared > 1.0) {
             discard;
         }
         
-        // Core and glow effect
-        float coreFactor = 1.0 - smoothstep(0.0, 0.4, distSquared);
-        float glowFactor = 1.0 - smoothstep(0.4, 1.0, distSquared);
-        
-        // Combine core and glow
-        vec3 finalColor = mix(
-            bodyColor * glowIntensity,
-            bodyColor * coreBrightness,
-            coreFactor
-        );
-        
-        // Adjust alpha based on distance from center
-        float alpha = mix(glowIntensity, 1.0, coreFactor);
-        
-        // Distance fade effect for small bodies
-        if (vMass < 1.0e24) {
-            alpha *= clamp(1.0 - (vDistance * 0.0000001), 0.1, 1.0);
-        }
-        
-        FragColor = vec4(finalColor, alpha);
+        // Simply output white with full opacity
+        FragColor = vec4(bodyColor, 1.0);
     }
 )";
 
@@ -281,7 +221,7 @@ void OpenGLRenderer::init()
             std::cerr << "Failed to create Vertex Buffer Object (VBO)" << std::endl;
 
         // Initial camera/view settings
-        simulationState_.zoomFactor.store(1.0);
+        simulationState_.zoomFactor.store(0.1);
         simulationState_.offsetX = 0.0;
         simulationState_.offsetY = 0.0;
 
@@ -322,9 +262,13 @@ void OpenGLRenderer::render(float aspectRatio)
     float offsetX = simulationState_.offsetX;
     float offsetY = simulationState_.offsetY;
 
+    // std::cout << "Rendering with: Zoom=" << zoomFactor 
+    //       << ", ParticleSize=" << particleSize 
+    //       << ", Camera at z=" << (10.0f / zoomFactor) << std::endl;
+
     // Create view matrix with adjusted camera position
     glm::mat4 view = glm::lookAt(
-        glm::vec3(offsetX, offsetY, 2.0f / zoomFactor), // Camera position
+        glm::vec3(offsetX, offsetY, 10.0f / zoomFactor), // Camera position
         glm::vec3(offsetX, offsetY, 0.0f),              // Look at offset origin
         glm::vec3(0.0f, 1.0f, 0.0f)                     // Up vector
     );
@@ -344,8 +288,12 @@ void OpenGLRenderer::render(float aspectRatio)
     // Set uniform values
     glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
-    // glUniform1f(pointSizeLoc, 5.0f + (zoomFactor * 0.5f));
-    glUniform1f(pointSizeLoc, particleSize);
+    // glUniform1f(pointSizeLoc, 5.0f + (zoomFactor * particleSize));
+    float adaptiveSize = particleSize * (0.1f + (0.01f / zoomFactor));
+    // Cap maximum size to avoid oversized particles
+    adaptiveSize = std::min(adaptiveSize, 10.0f);
+
+    glUniform1f(pointSizeLoc, adaptiveSize);
     glUniform1f(scaleFactorLoc, scaleFactor);
 
     // Clear buffers with a nice dark background
@@ -411,7 +359,7 @@ void OpenGLRenderer::updateBodies(Body *bodies, int numBodies)
     double rangeX = maxX - minX;
     double rangeY = maxY - minY;
     double rangeZ = maxZ - minZ;
-    double maxRange = std::max({rangeX, rangeY, rangeZ});
+    double maxRange = std::max(std::max(rangeX, rangeY), rangeZ);
 
     for (int i = 0; i < numBodies; ++i)
     {

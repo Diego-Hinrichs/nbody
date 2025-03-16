@@ -13,18 +13,18 @@ __device__ bool isCollide(Body &b1, Vector cm)
     return threshold > d;
 }
 
-__device__ void ComputeForce(Node *node, Body *bodies, int nodeIndex, int bodyIndex,
-                             int nNodes, int nBodies, int leafLimit, double width)
+__device__ void ComputeForce(Node *node, Body *bodies, int nodeIndex, int bodyIndex, int nNodes, int nBodies, int leafLimit, double width)
 {
     if (nodeIndex >= nNodes)
         return;
 
     Node curNode = node[nodeIndex];
     Body bi = bodies[bodyIndex];
-
+    
     // Caso de nodo hoja: usar el centro de masa para aproximar la fuerza
     if (curNode.isLeaf)
-    {
+    {   
+        // printf("Condition: %d\n", curNode.centerMass.x != -1 && !isCollide(bi, curNode.centerMass));
         if (curNode.centerMass.x != -1 && !isCollide(bi, curNode.centerMass))
         {
             Vector rij = {
@@ -76,6 +76,7 @@ __device__ void ComputeForce(Node *node, Body *bodies, int nodeIndex, int bodyIn
     }
 }
 
+
 __global__ void ComputeForceKernel(Node *node, Body *bodies, int nNodes, int nBodies, int leafLimit)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -88,6 +89,7 @@ __global__ void ComputeForceKernel(Node *node, Body *bodies, int nNodes, int nBo
             // Reiniciar la aceleración
             bi.acceleration = {0.0, 0.0, 0.0};
 
+            // Compute the force recursively
             ComputeForce(node, bodies, 0, i, nNodes, nBodies, leafLimit, width);
 
             // Update velocity and position with integration (Euler)

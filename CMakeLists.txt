@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.5)
 
 # Set C and C++ compilers explicitly if needed
 if(NOT DEFINED CMAKE_C_COMPILER)
@@ -133,7 +133,6 @@ add_executable(BarnesHutSimulation
 # CUDA Configuration
 set_target_properties(BarnesHutSimulation PROPERTIES
     CUDA_SEPARABLE_COMPILATION ON
-    CUDA_ARCHITECTURES native
 )
 
 # Include directories

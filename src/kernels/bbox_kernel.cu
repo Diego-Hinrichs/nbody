@@ -15,14 +15,14 @@ __global__ void ComputeBoundingBoxKernel(Node *node, Body *bodies, int *mutex, i
     int b = blockIdx.x * blockDim.x + tx;
 
     // Inicialización correcta para encontrar mínimos y máximos
-    topLeftFrontX[tx] = INFINITY;  // Para encontrar mínimo en X
-    topLeftFrontY[tx] = -INFINITY; // Para encontrar mínimo en Y
-    topLeftFrontZ[tx] = INFINITY;  // Para encontrar mínimo en Z
+    topLeftFrontX[tx] = INFINITY; // Para encontrar mínimo en X
+    topLeftFrontY[tx] = INFINITY; // Para encontrar mínimo en Y
+    topLeftFrontZ[tx] = INFINITY; // Para encontrar mínimo en Z
 
     botRightBackX[tx] = -INFINITY; // Para encontrar máximo en X
-    botRightBackY[tx] = INFINITY;  // Para encontrar máximo en Y
+    botRightBackY[tx] = -INFINITY; // Para encontrar máximo en Y
     botRightBackZ[tx] = -INFINITY; // Para encontrar máximo en Z
-
+    
     __syncthreads();
 
     // Cargar datos del cuerpo si está dentro del rango
@@ -62,13 +62,12 @@ __global__ void ComputeBoundingBoxKernel(Node *node, Body *bodies, int *mutex, i
         while (atomicCAS(mutex, 0, 1) != 0)
             ;
         // Actualizar mínimos con margen
-        node[0].topLeftFront.x = fminf(node[0].topLeftFront.x, topLeftFrontX[0] - 1.0e10);
-        node[0].botRightBack.y = fmaxf(node[0].botRightBack.y, botRightBackY[0] - 1.0e10);
-
+        node[0].topLeftFront.x = fminf(node[0].topLeftFront.x, topLeftFrontX[0] + 1.0e10);
         node[0].topLeftFront.y = fminf(node[0].topLeftFront.y, topLeftFrontY[0] + 1.0e10);
-        node[0].botRightBack.x = fmaxf(node[0].botRightBack.x, botRightBackX[0] + 1.0e10);
-
         node[0].topLeftFront.z = fminf(node[0].topLeftFront.z, topLeftFrontZ[0] + 1.0e10);
+        
+        node[0].botRightBack.x = fmaxf(node[0].botRightBack.x, botRightBackX[0] - 1.0e10);
+        node[0].botRightBack.y = fmaxf(node[0].botRightBack.y, botRightBackY[0] - 1.0e10);
         node[0].botRightBack.z = fmaxf(node[0].botRightBack.z, botRightBackZ[0] - 1.0e10);
 
         atomicExch(mutex, 0);

@@ -12,6 +12,7 @@
 __global__ void ResetKernel(Node *node, int *mutex, int nNodes, int nBodies);
 __global__ void ComputeBoundingBoxKernel(Node *node, Body *bodies, int *mutex, int nBodies);
 __global__ void ConstructOctTreeKernel(Node *node, Body *bodies, Body *buffer, int nodeIndex, int nNodes, int nBodies, int leafLimit);
+// __global__ void ConstructOctTreeKernel(Node *node, Body *bodies, Body *buffer, int nodeIndex, int nNodes, int nBodies, int leafLimit, int depth);
 __global__ void ComputeForceKernel(Node *node, Body *bodies, int nNodes, int nBodies, int leafLimit);
 
 class SimulationBase
@@ -20,7 +21,6 @@ protected:
     int nBodies;    // Number of bodies in the simulation
     Body *h_bodies; // Host bodies array
     Body *d_bodies; // Device bodies array
-    Body *d_tempBodies;
 
     SimulationMetrics metrics; // Performance metrics
 

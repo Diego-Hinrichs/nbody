@@ -9,7 +9,6 @@ SimulationBase::SimulationBase(int numBodies, BodyDistribution dist, unsigned in
     : nBodies(numBodies),
       h_bodies(nullptr),
       d_bodies(nullptr),
-      d_tempBodies(nullptr),
       distribution(dist),
       randomSeed(seed),
       isInitialized(false)
@@ -20,8 +19,6 @@ SimulationBase::SimulationBase(int numBodies, BodyDistribution dist, unsigned in
     // Allocate device memory for bodies
     CHECK_CUDA_ERROR(cudaMalloc(&d_bodies, nBodies * sizeof(Body)));
 
-    // Allocate temporary device memory if needed
-    CHECK_CUDA_ERROR(cudaMalloc(&d_tempBodies, nBodies * sizeof(Body)));
 }
 
 SimulationBase::~SimulationBase()
@@ -37,12 +34,6 @@ SimulationBase::~SimulationBase()
     {
         CHECK_CUDA_ERROR(cudaFree(d_bodies));
         d_bodies = nullptr;
-    }
-
-    if (d_tempBodies)
-    {
-        CHECK_CUDA_ERROR(cudaFree(d_tempBodies));
-        d_tempBodies = nullptr;
     }
 }
 
