@@ -62,6 +62,26 @@ private:
     
     // Octree shader creation
     void initOctreeRenderer();
+    
+    // Helper method to add a node to the octree visualization
+    void addNodeToOctreeVisualization(
+        std::vector<float>& vertices,
+        const Node& node,
+        float scaleFactor,
+        int currentDepth,
+        int maxDepth
+    );
+    
+    // Helper method to recursively process octree nodes
+    void processOctreeNode(
+        std::vector<float>& vertices,
+        Node* nodes, 
+        int numNodes,
+        int nodeIndex, 
+        float scaleFactor,
+        int currentDepth, 
+        int maxDepth
+    );
 };
 
 #endif // OPENGL_RENDERER_H

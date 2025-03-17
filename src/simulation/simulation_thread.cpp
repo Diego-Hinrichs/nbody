@@ -128,7 +128,8 @@ void SimulationThread::run()
             // Update simulation
             {
                 std::lock_guard<std::mutex> lock(simulationMutex);
-                if (simulation) {
+                if (simulation)
+                {
                     simulation->update();
                 }
             }
@@ -243,13 +244,14 @@ void SimulationThread::updatePerformanceMetrics(double frameTime)
 {
     // Track the simulation iteration time separately from FPS
     state->lastIterationTime = frameTime;
-    
+
     // Update FPS tracking based on visualization frequency
-    if (frameCounter == 0) {
+    if (frameCounter == 0)
+    {
         // We've just updated the visualization, so count this as a rendered frame
         frameCount++;
     }
-    
+
     auto now = std::chrono::steady_clock::now();
     if (std::chrono::duration<double>(now - lastTime).count() >= 1.0)
     {
@@ -263,18 +265,71 @@ void SimulationThread::updatePerformanceMetrics(double frameTime)
 SimulationData SimulationThread::getSimulationData()
 {
     SimulationData data;
-    
+
     // Acceder a la simulación bajo protección de mutex
     {
         std::lock_guard<std::mutex> lock(simulationMutex);
-        if (simulation) {
+        if (simulation)
+        {
             data.simulation = simulation.get();
             data.valid = true;
-        } else {
+        }
+        else
+        {
             data.simulation = nullptr;
             data.valid = false;
         }
     }
-    
+
     return data;
+}
+
+// Añadir este método a src/simulation/simulation_thread.cpp
+
+void SimulationThread::updateOctreeVisualization(OpenGLRenderer &renderer)
+{
+    if (!simulation || !state)
+        return;
+
+    // Verificar si el método actual es Barnes-Hut
+    SimulationMethod method = state->simulationMethod.load();
+    bool isBarnesHut = (method == SimulationMethod::CPU_BARNES_HUT ||
+                        method == SimulationMethod::CPU_SFC_BARNES_HUT ||
+                        method == SimulationMethod::GPU_BARNES_HUT);
+
+    if (!isBarnesHut || !state->showOctree)
+        return;
+
+    std::lock_guard<std::mutex> lock(simulationMutex); // Proteger el acceso a simulation
+
+    // Para el método GPU_BARNES_HUT
+    if (method == SimulationMethod::GPU_BARNES_HUT)
+    {
+        BarnesHut *bhSim = dynamic_cast<BarnesHut *>(simulation.get());
+        if (bhSim)
+        {
+            int numNodes = bhSim->getNumNodes();
+            if (numNodes > 0)
+            {
+                std::vector<Node> octreeNodes(numNodes);
+                if (bhSim->getOctreeNodes(octreeNodes.data(), numNodes))
+                {
+                    renderer.updateOctreeVisualization(
+                        octreeNodes.data(),
+                        numNodes,
+                        bhSim->getRootNodeIndex(),
+                        state->octreeMaxDepth);
+                }
+            }
+        }
+    }
+    // Para los métodos CPU_BARNES_HUT y CPU_SFC_BARNES_HUT
+    // Nota: Estos métodos requerirían implementación adicional para acceder a los datos del octree
+    else if (method == SimulationMethod::CPU_BARNES_HUT ||
+             method == SimulationMethod::CPU_SFC_BARNES_HUT)
+    {
+        // Implementación para CPU Barnes-Hut (requeriría añadir métodos similares
+        // a getOctreeNodes y getRootNodeIndex en la clase CPUBarnesHut)
+        // Por ahora, dejamos esta parte sin implementar
+    }
 }

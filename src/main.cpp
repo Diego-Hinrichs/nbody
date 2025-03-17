@@ -220,8 +220,8 @@ void renderLoop(GLFWwindow *window, SimulationState &simulationState, Simulation
         frameCounter++;
         if (simulationState.showOctree && frameCounter >= OCTREE_UPDATE_FREQ)
         {
-            updateOctreeVisualization(&simThread, renderer);
             frameCounter = 0;
+            simThread.updateOctreeVisualization(renderer);
         }
 
         // Get window dimensions
@@ -237,95 +237,6 @@ void renderLoop(GLFWwindow *window, SimulationState &simulationState, Simulation
 
         // Swap front and back buffers
         glfwSwapBuffers(window);
-    }
-}
-
-// Helper function to update octree visualization
-void updateOctreeVisualization(SimulationThread *simThread, OpenGLRenderer &renderer)
-{
-    std::cout << "Intentando actualizar visualización de octree..." << std::endl;
-    
-    if (!simThread || !g_simulationState) {
-        std::cout << "Error: simThread o g_simulationState es nullptr" << std::endl;
-        return;
-    }
-
-    // Check if we are using Barnes-Hut method
-    SimulationMethod method = g_simulationState->simulationMethod.load();
-    bool isBarnesHut = (method == SimulationMethod::CPU_BARNES_HUT ||
-                        method == SimulationMethod::CPU_SFC_BARNES_HUT ||
-                        method == SimulationMethod::GPU_BARNES_HUT);
-
-    if (!isBarnesHut)
-    {
-        std::cout << "Método actual no es Barnes-Hut: " << static_cast<int>(method) << std::endl;
-        return;
-    }
-
-    // Obtener datos de simulación
-    auto simData = simThread->getSimulationData();
-    if (!simData.valid)
-    {
-        std::cout << "Error: simData no es válido" << std::endl;
-        return;
-    }
-
-    // Get octree data based on simulation type
-    std::vector<Node> octreeNodes;
-    int numNodes = 0;
-    int rootIndex = 0;
-
-    if (method == SimulationMethod::GPU_BARNES_HUT)
-    {
-        BarnesHut *bhSim = dynamic_cast<BarnesHut *>(simData.simulation);
-        if (bhSim)
-        {
-            numNodes = bhSim->getNumNodes();
-            std::cout << "Número de nodos en el octree: " << numNodes << std::endl;
-
-            octreeNodes.resize(numNodes);
-            if (bhSim->getOctreeNodes(octreeNodes.data(), numNodes))
-            {
-                std::cout << "Nodos de octree obtenidos correctamente" << std::endl;
-                rootIndex = bhSim->getRootNodeIndex();
-            }
-            else
-            {
-                std::cout << "Error al obtener nodos de octree" << std::endl;
-                return;
-            }
-        }
-        else
-        {
-            std::cout << "Error: dynamic_cast a BarnesHut falló" << std::endl;
-            return;
-        }
-    }
-    else if (method == SimulationMethod::CPU_BARNES_HUT ||
-             method == SimulationMethod::CPU_SFC_BARNES_HUT)
-    {
-        // Handle CPU Barnes-Hut
-        CPUBarnesHut *cpuBhSim = dynamic_cast<CPUBarnesHut *>(simData.simulation);
-        if (cpuBhSim)
-        {
-            // Para CPU Barnes-Hut necesitaríamos añadir métodos similares
-            // (getNumNodes, getOctreeNodes, etc.)
-            // Si no están implementados, esta parte no se ejecutará
-            return;
-        }
-    }
-
-    // Update visualization if we have valid data
-    if (numNodes > 0 && !octreeNodes.empty()) {
-        std::cout << "Actualizando visualización con " << numNodes << " nodos" << std::endl;
-        renderer.updateOctreeVisualization(
-            octreeNodes.data(),
-            numNodes,
-            rootIndex,
-            g_simulationState->octreeMaxDepth
-        );
-    } else {
-        std::cout << "No hay nodos válidos para renderizar" << std::endl;
     }
 }
 

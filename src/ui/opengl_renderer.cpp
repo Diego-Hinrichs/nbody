@@ -2,9 +2,10 @@
 #include <iostream>
 #include <limits>
 #include <cmath>
+#include <queue>
+#include <tuple>
 
-// Ejemplo de shader de vértices mejorado que incluye tamaño variable
-// Vertex Shader
+// Vertex Shader para partículas
 const char *vertexShaderSource = R"(
     #version 420 core
     layout (location = 0) in vec3 aPosition;
@@ -57,7 +58,7 @@ const char *vertexShaderSource = R"(
     }
 )";
 
-// Shader de fragmentos actualizado con colores de mayor contraste
+// Fragment Shader para partículas
 const char *fragmentShaderSource = R"(
     #version 420 core
     in float vMass;
@@ -94,14 +95,14 @@ const char *octreeVertexShaderSource = R"(
     }
 )";
 
+// Fragment Shader simplificado para octree con color fijo brillante
 const char *octreeFragmentShaderSource = R"(
     #version 330 core
-    in vec4 vColor;
     out vec4 FragColor;
     
     void main() {
-        // Ignorar alpha y usar un color sólido y brillante para pruebas
-        FragColor = vec4(1.0, 0.0, 1.0, 1.0); // Magenta brillante
+        // Color brillante para asegurar visibilidad
+        FragColor = vec4(0.0, 1.0, 1.0, 1.0); // Cian brillante
     }
 )";
 
@@ -110,7 +111,12 @@ OpenGLRenderer::OpenGLRenderer(SimulationState &simulationState)
       shaderProgram_(0),
       VBO_(0),
       VAO_(0),
-      numBodies_(0)
+      numBodies_(0),
+      octreeShaderProgram_(0),
+      octreeVBO_(0),
+      octreeVAO_(0),
+      octreeVertexCount_(0),
+      lastAspectRatio_(1.0f)
 {
 }
 
@@ -123,6 +129,14 @@ OpenGLRenderer::~OpenGLRenderer()
         glDeleteBuffers(1, &VBO_);
     if (shaderProgram_)
         glDeleteProgram(shaderProgram_);
+
+    // Limpiar recursos del octree
+    if (octreeVAO_)
+        glDeleteVertexArrays(1, &octreeVAO_);
+    if (octreeVBO_)
+        glDeleteBuffers(1, &octreeVBO_);
+    if (octreeShaderProgram_)
+        glDeleteProgram(octreeShaderProgram_);
 }
 
 GLuint OpenGLRenderer::compileShader(GLenum type, const char *source)
@@ -181,51 +195,55 @@ void OpenGLRenderer::createShaderProgram()
 
 void OpenGLRenderer::setupBuffers()
 {
-    // Create VAO and VBO
+    // Create VAO and VBO for particles
     glGenVertexArrays(1, &VAO_);
     glGenBuffers(1, &VBO_);
 }
 
 void OpenGLRenderer::initOctreeRenderer()
 {
-    // Compilar los shaders del octree
+    // Compile the shaders for octree
     GLuint vertexShader = compileShader(GL_VERTEX_SHADER, octreeVertexShaderSource);
     GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, octreeFragmentShaderSource);
-    
-    // Verificar compilación
-    if (!vertexShader || !fragmentShader) {
+
+    // Verify compilation
+    if (!vertexShader || !fragmentShader)
+    {
         std::cerr << "ERROR: Failed to compile octree shaders" << std::endl;
         return;
     }
-    
-    // Crear programa de shaders
+
+    // Create shader program
     octreeShaderProgram_ = glCreateProgram();
     glAttachShader(octreeShaderProgram_, vertexShader);
     glAttachShader(octreeShaderProgram_, fragmentShader);
     glLinkProgram(octreeShaderProgram_);
-    
-    // Verificar enlace
+
+    // Verify linking
     GLint success;
     GLchar infoLog[512];
     glGetProgramiv(octreeShaderProgram_, GL_LINK_STATUS, &success);
-    if (!success) {
+    if (!success)
+    {
         glGetProgramInfoLog(octreeShaderProgram_, sizeof(infoLog), nullptr, infoLog);
-        std::cerr << "ERROR: Octree shader program linking failed\n" << infoLog << std::endl;
-        octreeShaderProgram_ = 0; // Asegurarse de que sea 0 para evitar usarlo
-    } else {
-        std::cout << "Octree shader program compilado y enlazado correctamente: ID=" 
+        std::cerr << "ERROR: Octree shader program linking failed\n"
+                  << infoLog << std::endl;
+        octreeShaderProgram_ = 0;
+    }
+    else
+    {
+        std::cout << "Octree shader program compiled and linked successfully: ID="
                   << octreeShaderProgram_ << std::endl;
     }
-    
-    // Limpiar shaders
+
+    // Clean up shaders
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
-    
-    // Crear VAO y VBO para el octree
+
+    // Create VAO and VBO for the octree
     glGenVertexArrays(1, &octreeVAO_);
     glGenBuffers(1, &octreeVBO_);
 }
-
 
 void OpenGLRenderer::init()
 {
@@ -271,7 +289,7 @@ void OpenGLRenderer::init()
             std::cerr << "Error setting blend function: " << err << std::endl;
 
         glfwSwapInterval(1);
-        
+
         // Create the shader program with comprehensive error checking
         createShaderProgram();
 
@@ -291,17 +309,15 @@ void OpenGLRenderer::init()
 
         std::cout << "OpenGL Renderer initialized successfully" << std::endl;
         std::cout << "Shader program ID: " << shaderProgram_ << std::endl;
+
+        // Initialize octree renderer
+        initOctreeRenderer();
     }
     catch (const std::exception &e)
     {
         std::cerr << "Exception during OpenGL initialization: "
                   << e.what() << std::endl;
     }
-
-    initOctreeRenderer();
-    
-    lastAspectRatio_ = 1.0f;
-    octreeVertexCount_ = 0;
 
     // Final error check
     err = glGetError();
@@ -333,10 +349,6 @@ void OpenGLRenderer::render(float aspectRatio)
     float offsetX = simulationState_.offsetX;
     float offsetY = simulationState_.offsetY;
 
-    // std::cout << "Rendering with: Zoom=" << zoomFactor 
-    //       << ", ParticleSize=" << particleSize 
-    //       << ", Camera at z=" << (10.0f / zoomFactor) << std::endl;
-
     // Create view matrix with adjusted camera position
     glm::mat4 view = glm::lookAt(
         glm::vec3(offsetX, offsetY, 10.0f / zoomFactor), // Camera position
@@ -344,9 +356,11 @@ void OpenGLRenderer::render(float aspectRatio)
         glm::vec3(0.0f, 1.0f, 0.0f)                     // Up vector
     );
 
-    // Scale factor for adjusting normalized coordinates
-    float scaleFactor = 1.0f * zoomFactor;
-
+    // Clear buffers with a nice dark background
+    glClearColor(41.0f / 255.0f, 41.0f / 255.0f, 40.0f / 255.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    
+    // Primero, dibuja las partículas
     // Use shader program
     glUseProgram(shaderProgram_);
 
@@ -359,31 +373,50 @@ void OpenGLRenderer::render(float aspectRatio)
     // Set uniform values
     glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
-    // float adaptiveSize = particleSize * (0.1f + (0.01f / zoomFactor));
+    
     float adaptiveSize = particleSize * (0.1f + (0.01f / zoomFactor));
-    // Cap maximum size to avoid oversized particles
     adaptiveSize = std::min(adaptiveSize, 10.0f);
     
-    // glUniform1f(pointSizeLoc, adaptiveSize);
     glUniform1f(pointSizeLoc, 5.0f + (zoomFactor * particleSize));
-    glUniform1f(scaleFactorLoc, scaleFactor);
-
-    // Clear buffers with a nice dark background
-    // glClearColor(0.0f, 0.0f, 0.1f, 1.0f);
-    glClearColor(41.0f / 255.0f, 41.0f / 255.0f, 40.0f / 255.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-    if (simulationState_.showOctree) {
-        renderOctree(aspectRatio);
-    }
+    glUniform1f(scaleFactorLoc, 1.0f * zoomFactor);
     
     // Bind VAO and draw points
     glBindVertexArray(VAO_);
     glDrawArrays(GL_POINTS, 0, numBodies_);
-
-    // Cleanup
     glBindVertexArray(0);
     glUseProgram(0);
+
+    // Ahora, si está habilitado, dibuja el octree encima
+    if (simulationState_.showOctree && octreeShaderProgram_ != 0 && octreeVertexCount_ > 0) {
+        // Usar shader del octree
+        glUseProgram(octreeShaderProgram_);
+        
+        // Configurar uniforms
+        GLint octreeProjLoc = glGetUniformLocation(octreeShaderProgram_, "uProjection");
+        GLint octreeViewLoc = glGetUniformLocation(octreeShaderProgram_, "uView");
+        
+        if (octreeProjLoc != -1)
+            glUniformMatrix4fv(octreeProjLoc, 1, GL_FALSE, glm::value_ptr(projection));
+        else
+            std::cout << "Warning: uProjection uniform not found in octree shader" << std::endl;
+            
+        if (octreeViewLoc != -1)
+            glUniformMatrix4fv(octreeViewLoc, 1, GL_FALSE, glm::value_ptr(view));
+        else
+            std::cout << "Warning: uView uniform not found in octree shader" << std::endl;
+        
+        // Debug: Imprimir número de vértices del octree
+        std::cout << "Drawing octree with " << octreeVertexCount_ << " vertices" << std::endl;
+        
+        // Establecer grosor de línea más visible
+        glLineWidth(2.0f);
+        
+        // Dibujar el octree
+        glBindVertexArray(octreeVAO_);
+        glDrawArrays(GL_LINES, 0, octreeVertexCount_);
+        glBindVertexArray(0);
+        glUseProgram(0);
+    }
 }
 
 void OpenGLRenderer::updateBodies(Body *bodies, int numBodies)
@@ -449,8 +482,9 @@ void OpenGLRenderer::updateBodies(Body *bodies, int numBodies)
         combinedData.push_back(normalizedY);
         combinedData.push_back(normalizedZ);
 
-        // Normalize mass logarithmically for visibility
-        float normalizedMass = static_cast<float>(log(std::max(bodies[i].mass, 1.0)) * 1.0);
+        // Add mass value for shader
+        float normalizedMass = static_cast<float>(bodies[i].mass);
+        combinedData.push_back(normalizedMass);
     }
 
     numBodies_ = numBodies;
@@ -478,147 +512,263 @@ void OpenGLRenderer::updateBodies(Body *bodies, int numBodies)
     glBindVertexArray(0);
 }
 
-void OpenGLRenderer::renderOctree(float aspectRatio)
+void OpenGLRenderer::addNodeToOctreeVisualization(
+    std::vector<float> &vertices,
+    const Node &node,
+    float scaleFactor,
+    int currentDepth,
+    int maxDepth)
 {
-    if (octreeVertexCount_ <= 0 || octreeShaderProgram_ == 0) {
+    if (currentDepth > maxDepth)
+    {
         return;
     }
 
-    // Crear una matriz de proyección simple
-    glm::mat4 projection = glm::perspective(
-        glm::radians(45.0f),
-        aspectRatio,
-        0.1f,
-        1000.0f
-    );
-    
-    // Usar una vista fija que sabemos que funcionará
-    glm::mat4 view = glm::lookAt(
-        glm::vec3(0.0f, 0.0f, 5.0f), // Posición de cámara
-        glm::vec3(0.0f, 0.0f, 0.0f), // Punto al que mira
-        glm::vec3(0.0f, 1.0f, 0.0f)  // Vector "arriba"
-    );
-    
-    // Usar shader del octree
-    glUseProgram(octreeShaderProgram_);
-    
-    // Configurar uniforms
-    GLint projLoc = glGetUniformLocation(octreeShaderProgram_, "uProjection");
-    GLint viewLoc = glGetUniformLocation(octreeShaderProgram_, "uView");
-    GLint scaleLoc = glGetUniformLocation(octreeShaderProgram_, "uScaleFactor");
-    
-    glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
-    glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
-    glUniform1f(scaleLoc, 0.01f); // Escala pequeña fija
-    
-    // Desactivar depth test para pruebas
-    glDisable(GL_DEPTH_TEST);
-    
-    // Líneas más gruesas
-    glLineWidth(5.0f);
-    
-    // Dibujar primero el octree y luego todo lo demás
-    glBindVertexArray(octreeVAO_);
-    glDrawArrays(GL_LINES, 0, octreeVertexCount_);
-    
-    // Restaurar depth test
-    glEnable(GL_DEPTH_TEST);
-    
-    // Limpiar
-    glBindVertexArray(0);
-    glUseProgram(0);
+    // Extract bounding box corners and scale them
+    float minX = node.topLeftFront.x * scaleFactor;
+    float maxX = node.botRightBack.x * scaleFactor;
+    float minY = node.botRightBack.y * scaleFactor; // Note: Y is inverted in your implementation
+    float maxY = node.topLeftFront.y * scaleFactor;
+    float minZ = node.topLeftFront.z * scaleFactor;
+    float maxZ = node.botRightBack.z * scaleFactor;
+
+    // Add front face edges
+    vertices.push_back(minX);
+    vertices.push_back(minY);
+    vertices.push_back(minZ);
+    vertices.push_back(maxX);
+    vertices.push_back(minY);
+    vertices.push_back(minZ);
+
+    vertices.push_back(maxX);
+    vertices.push_back(minY);
+    vertices.push_back(minZ);
+    vertices.push_back(maxX);
+    vertices.push_back(maxY);
+    vertices.push_back(minZ);
+
+    vertices.push_back(maxX);
+    vertices.push_back(maxY);
+    vertices.push_back(minZ);
+    vertices.push_back(minX);
+    vertices.push_back(maxY);
+    vertices.push_back(minZ);
+
+    vertices.push_back(minX);
+    vertices.push_back(maxY);
+    vertices.push_back(minZ);
+    vertices.push_back(minX);
+    vertices.push_back(minY);
+    vertices.push_back(minZ);
+
+    // Add back face edges
+    vertices.push_back(minX);
+    vertices.push_back(minY);
+    vertices.push_back(maxZ);
+    vertices.push_back(maxX);
+    vertices.push_back(minY);
+    vertices.push_back(maxZ);
+
+    vertices.push_back(maxX);
+    vertices.push_back(minY);
+    vertices.push_back(maxZ);
+    vertices.push_back(maxX);
+    vertices.push_back(maxY);
+    vertices.push_back(maxZ);
+
+    vertices.push_back(maxX);
+    vertices.push_back(maxY);
+    vertices.push_back(maxZ);
+    vertices.push_back(minX);
+    vertices.push_back(maxY);
+    vertices.push_back(maxZ);
+
+    vertices.push_back(minX);
+    vertices.push_back(maxY);
+    vertices.push_back(maxZ);
+    vertices.push_back(minX);
+    vertices.push_back(minY);
+    vertices.push_back(maxZ);
+
+    // Add connecting edges
+    vertices.push_back(minX);
+    vertices.push_back(minY);
+    vertices.push_back(minZ);
+    vertices.push_back(minX);
+    vertices.push_back(minY);
+    vertices.push_back(maxZ);
+
+    vertices.push_back(maxX);
+    vertices.push_back(minY);
+    vertices.push_back(minZ);
+    vertices.push_back(maxX);
+    vertices.push_back(minY);
+    vertices.push_back(maxZ);
+
+    vertices.push_back(maxX);
+    vertices.push_back(maxY);
+    vertices.push_back(minZ);
+    vertices.push_back(maxX);
+    vertices.push_back(maxY);
+    vertices.push_back(maxZ);
+
+    vertices.push_back(minX);
+    vertices.push_back(maxY);
+    vertices.push_back(minZ);
+    vertices.push_back(minX);
+    vertices.push_back(maxY);
+    vertices.push_back(maxZ);
 }
+
+void OpenGLRenderer::processOctreeNode(
+    std::vector<float> &vertices,
+    Node *nodes,
+    int numNodes,
+    int nodeIndex,
+    float scaleFactor,
+    int currentDepth,
+    int maxDepth)
+{
+    if (nodeIndex < 0 || nodeIndex >= numNodes || currentDepth > maxDepth)
+    {
+        return;
+    }
+
+    // Add the current node to visualization
+    addNodeToOctreeVisualization(vertices, nodes[nodeIndex], scaleFactor, currentDepth, maxDepth);
+
+    // For leaf nodes we stop here
+    if (nodes[nodeIndex].isLeaf || currentDepth >= maxDepth)
+    {
+        return;
+    }
+
+    // Otherwise, process children
+    // Note: In the Barnes-Hut implementation, children are at indices (nodeIndex*8 + 1) through (nodeIndex*8 + 8)
+    for (int i = 1; i <= 8; i++)
+    {
+        int childIndex = nodeIndex * 8 + i;
+        if (childIndex < numNodes &&
+            nodes[childIndex].start != -1 &&
+            nodes[childIndex].end != -1)
+        {
+            processOctreeNode(vertices, nodes, numNodes, childIndex, scaleFactor, currentDepth + 1, maxDepth);
+        }
+    }
+}
+
+// Modifica esta parte en OpenGLRenderer::updateOctreeVisualization
 
 void OpenGLRenderer::updateOctreeVisualization(Node* nodes, int numNodes, int rootIndex, int maxDepth)
 {
-    // Ignorar los parámetros y crear un simple cubo de prueba
+    if (numNodes <= 0 || !nodes || rootIndex < 0 || rootIndex >= numNodes) {
+        std::cout << "Invalid octree data for visualization" << std::endl;
+        octreeVertexCount_ = 0;
+        return;
+    }
+    
     std::vector<float> vertices;
-    std::vector<float> colors;
     
-    // Un cubo simple centrado en el origen
-    float size = 0.5f;
+    // Problema potencial: Factor de escala inadecuado
+    // Probar diferentes valores de escalado para hacer visible el octree
+    // float scaleFactor = 1.0e-11; // Valor original
+    float scaleFactor = 1.0e-12; // Intentar un valor más pequeño
     
-    // Vértices del cubo
-    float cubeVertices[] = {
-        // Cara frontal
-        -size, -size, -size,
-        size, -size, -size,
-        size, -size, -size,
-        size, size, -size,
-        size, size, -size,
-        -size, size, -size,
-        -size, size, -size,
-        -size, -size, -size,
-        
-        // Cara trasera
-        -size, -size, size,
-        size, -size, size,
-        size, -size, size,
-        size, size, size,
-        size, size, size,
-        -size, size, size,
-        -size, size, size,
-        -size, -size, size,
-        
-        // Conectores
-        -size, -size, -size,
-        -size, -size, size,
-        size, -size, -size,
-        size, -size, size,
-        size, size, -size,
-        size, size, size,
-        -size, size, -size,
-        -size, size, size
-    };
+    // También imprimir información sobre el tamaño del nodo raíz para depuración
+    Node rootNode = nodes[rootIndex];
+    std::cout << "Root node dimensions: " 
+              << "Width: " << fabs(rootNode.botRightBack.x - rootNode.topLeftFront.x) * scaleFactor
+              << ", Height: " << fabs(rootNode.topLeftFront.y - rootNode.botRightBack.y) * scaleFactor
+              << ", Depth: " << fabs(rootNode.botRightBack.z - rootNode.topLeftFront.z) * scaleFactor
+              << std::endl;
     
-    // Convertir el array a vector
-    for (int i = 0; i < 24 * 3; i++) {
-        vertices.push_back(cubeVertices[i]);
-    }
+    // Procesar el octree recursivamente comenzando desde la raíz
+    processOctreeNode(vertices, nodes, numNodes, rootIndex, scaleFactor, 0, maxDepth);
     
-    // Color rojo brillante para todas las líneas
-    for (int i = 0; i < 24; i++) {
-        colors.push_back(1.0f); // R
-        colors.push_back(0.0f); // G
-        colors.push_back(0.0f); // B
-        colors.push_back(1.0f); // A
-    }
-    
-    // Actualizar contador de vértices
+    // Actualizar el conteo de vértices
     octreeVertexCount_ = vertices.size() / 3;
     
-    // Combinar vértices y colores
-    std::vector<float> combinedData;
-    
-    for (size_t i = 0; i < vertices.size() / 3; i++) {
-        // Vértice
-        combinedData.push_back(vertices[i * 3]);
-        combinedData.push_back(vertices[i * 3 + 1]);
-        combinedData.push_back(vertices[i * 3 + 2]);
-        
-        // Color
-        combinedData.push_back(colors[i * 4]);
-        combinedData.push_back(colors[i * 4 + 1]);
-        combinedData.push_back(colors[i * 4 + 2]);
-        combinedData.push_back(colors[i * 4 + 3]);
+    if (octreeVertexCount_ == 0) {
+        std::cout << "No octree nodes to visualize" << std::endl;
+        return;
     }
     
-    // Actualizar buffer
+    std::cout << "Generated octree visualization with " << octreeVertexCount_ << " vertices" << std::endl;
+    
+    // Actualizar VBO y VAO
     glBindVertexArray(octreeVAO_);
     glBindBuffer(GL_ARRAY_BUFFER, octreeVBO_);
     
-    glBufferData(GL_ARRAY_BUFFER, combinedData.size() * sizeof(float), combinedData.data(), GL_DYNAMIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_DYNAMIC_DRAW);
     
-    // Configurar atributos
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 7 * sizeof(float), (void*)0);
+    // Configurar atributos de vértices
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
-    
-    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 7 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
     
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
-    
-    std::cout << "Generado cubo de prueba con " << octreeVertexCount_ << " vértices" << std::endl;
 }
 
+void OpenGLRenderer::renderOctree(float aspectRatio)
+{
+    if (octreeVertexCount_ <= 0 || octreeShaderProgram_ == 0)
+    {
+        return;
+    }
+
+    // Use the same projection and view as in the main render method
+    // Create projection matrix
+    glm::mat4 projection = glm::perspective(
+        glm::radians(45.0f), // Field of view
+        aspectRatio,         // Aspect ratio
+        0.1f,                // Near plane
+        100.0f               // Far plane
+    );
+
+    // Get camera parameters from simulation state
+    float zoomFactor = simulationState_.zoomFactor.load();
+    float offsetX = simulationState_.offsetX;
+    float offsetY = simulationState_.offsetY;
+
+    // Create view matrix with adjusted camera position
+    glm::mat4 view = glm::lookAt(
+        glm::vec3(offsetX, offsetY, 10.0f / zoomFactor), // Camera position
+        glm::vec3(offsetX, offsetY, 0.0f),               // Look at offset origin
+        glm::vec3(0.0f, 1.0f, 0.0f)                      // Up vector
+    );
+
+    // Use shader del octree
+    glUseProgram(octreeShaderProgram_);
+
+    // Configurar uniforms
+    GLint projLoc = glGetUniformLocation(octreeShaderProgram_, "uProjection");
+    GLint viewLoc = glGetUniformLocation(octreeShaderProgram_, "uView");
+    GLint opacityLoc = glGetUniformLocation(octreeShaderProgram_, "uOpacity");
+
+    glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
+    glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+
+    // Set opacity from simulation state
+    if (opacityLoc != -1)
+    {
+        glUniform1f(opacityLoc, simulationState_.octreeOpacity);
+    }
+
+    // Enable blending for transparency
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    // Keep depth test enabled for proper ordering
+    glEnable(GL_DEPTH_TEST);
+
+    // Draw lines with appropriate width
+    glLineWidth(1.0f);
+
+    // Draw the octree
+    glBindVertexArray(octreeVAO_);
+    glDrawArrays(GL_LINES, 0, octreeVertexCount_);
+
+    // Cleanup
+    glBindVertexArray(0);
+    glUseProgram(0);
+}

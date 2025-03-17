@@ -569,6 +569,8 @@ void SimulationUIManager::renderOctreeVisualizationOptions()
         simulationState_.showOctree = showOctree;
     }
     
+    ImGui::TextWrapped("Toggle octree visualization without affecting particle display");
+    
     if (showOctree) {
         // Control de profundidad máxima
         int maxDepth = simulationState_.octreeMaxDepth;
@@ -582,6 +584,7 @@ void SimulationUIManager::renderOctreeVisualizationOptions()
         if (ImGui::SliderFloat("Opacity", &opacity, 0.1f, 1.0f, "%.2f")) {
             simulationState_.octreeOpacity = opacity;
         }
+        ImGui::TextWrapped("Adjust transparency of the octree lines");
         
         // Toggle para colorear por masa
         bool colorByMass = simulationState_.octreeColorByMass;
@@ -592,18 +595,17 @@ void SimulationUIManager::renderOctreeVisualizationOptions()
         if (colorByMass) {
             ImGui::TextWrapped("Red nodes contain more mass");
         } else {
-            ImGui::TextWrapped("Colors represent depth in the tree");
+            ImGui::TextWrapped("Uniform color for all octree nodes");
         }
         
         // Información sobre el octree
         ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Octree Statistics");
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Octree Information");
         ImGui::Text("Bodies in simulation: %d", simulationState_.numBodies.load());
         
-        // Nota: Estos valores son estáticos, en una implementación final
-        // deberían ser actualizados con datos reales del octree
-        ImGui::Text("Leaf nodes: ~%d", simulationState_.numBodies.load());
-        ImGui::Text("Internal nodes: ~%d", simulationState_.numBodies.load() / 2);
-        ImGui::Text("Approximate depth: ~%d", static_cast<int>(log2(simulationState_.numBodies.load() / 8) + 1));
+        // Nota: Aquí se podría añadir información real sobre el octree si estuviera disponible
+        int approxDepth = static_cast<int>(log2(simulationState_.numBodies.load() / 8) + 1);
+        ImGui::Text("Approximate depth: ~%d", approxDepth);
+        ImGui::Text("Approximate node count: ~%d", (1 << (3 * approxDepth)) / 7); // Estimación basada en octree completo
     }
 }

@@ -6,6 +6,7 @@
 
 #include "../common/types.cuh"
 #include "../ui/simulation_state.hpp"
+#include "../ui/opengl_renderer.hpp"
 
 #include <thread>
 #include <atomic>
@@ -14,9 +15,10 @@
 #include <mutex>
 
 // Estructura para compartir datos de simulación de forma segura entre hilos
-struct SimulationData {
-    SimulationBase* simulation;  // Puntero no administrado (raw pointer)
-    bool valid;                  // Indica si los datos son válidos
+struct SimulationData
+{
+    SimulationBase *simulation; // Puntero no administrado (raw pointer)
+    bool valid;                 // Indica si los datos son válidos
 };
 
 class SimulationThread
@@ -25,7 +27,7 @@ private:
     SimulationState *state;
     std::thread thread;
     std::unique_ptr<SimulationBase> simulation;
-    std::mutex simulationMutex;  // Mutex para proteger el acceso a simulation
+    std::mutex simulationMutex; // Mutex para proteger el acceso a simulation
 
     // Current simulation parameters (for detecting changes)
     int currentNumBodies;
@@ -69,6 +71,9 @@ public:
     void join();
 
     SimulationData getSimulationData();
+
+    // Nueva función para actualizar la visualización del octree
+    void updateOctreeVisualization(OpenGLRenderer &renderer);
 };
 
 #endif // SIMULATION_THREAD_HPP
