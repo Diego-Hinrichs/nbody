@@ -85,6 +85,12 @@ struct SimulationState
     int selectedCommandIndex;
     int selectedParticleOption;
     char seedInputBuffer[16]; // Buffer for seed input text
+    
+    // Octree visualization parameters
+    bool showOctree;                 // Toggle para mostrar/ocultar octree
+    int octreeMaxDepth;              // Profundidad máxima a visualizar
+    float octreeOpacity;             // Opacidad de las líneas del octree
+    bool octreeColorByMass;          // Colorear nodos según masa
 
     // Constructor with default initialization
     SimulationState();

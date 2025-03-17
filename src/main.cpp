@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <memory>
 #include <functional>
+#include <vector>
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -65,6 +66,9 @@ SimulationConfig parseArgs(int argc, char **argv)
 
 // Global simulation state for callbacks
 SimulationState *g_simulationState = nullptr;
+
+// Forward declaration of octree visualization functions
+void updateOctreeVisualization(SimulationThread *simThread, OpenGLRenderer &renderer);
 
 // GLFW error callback
 void glfw_error_callback(int error, const char *description)
@@ -191,8 +195,11 @@ void setupImGui(GLFWwindow *window)
 }
 
 // Main render loop
-void renderLoop(GLFWwindow *window, SimulationState &simulationState, OpenGLRenderer &renderer, SimulationUIManager &uiManager)
+void renderLoop(GLFWwindow *window, SimulationState &simulationState, SimulationThread &simThread, OpenGLRenderer &renderer, SimulationUIManager &uiManager)
 {
+    int frameCounter = 0;
+    const int OCTREE_UPDATE_FREQ = 5; // Actualizar visualización del octree cada N frames
+
     while (!glfwWindowShouldClose(window) && simulationState.running.load())
     {
         // Poll and handle events
@@ -209,12 +216,20 @@ void renderLoop(GLFWwindow *window, SimulationState &simulationState, OpenGLRend
             }
         }
 
+        // Update octree visualization if enabled
+        frameCounter++;
+        if (simulationState.showOctree && frameCounter >= OCTREE_UPDATE_FREQ)
+        {
+            updateOctreeVisualization(&simThread, renderer);
+            frameCounter = 0;
+        }
+
         // Get window dimensions
         int width, height;
         glfwGetFramebufferSize(window, &width, &height);
         float aspectRatio = static_cast<float>(width) / static_cast<float>(height);
 
-        // Render bodies
+        // Render bodies and octree
         renderer.render(aspectRatio);
 
         // Render UI
@@ -222,6 +237,95 @@ void renderLoop(GLFWwindow *window, SimulationState &simulationState, OpenGLRend
 
         // Swap front and back buffers
         glfwSwapBuffers(window);
+    }
+}
+
+// Helper function to update octree visualization
+void updateOctreeVisualization(SimulationThread *simThread, OpenGLRenderer &renderer)
+{
+    std::cout << "Intentando actualizar visualización de octree..." << std::endl;
+    
+    if (!simThread || !g_simulationState) {
+        std::cout << "Error: simThread o g_simulationState es nullptr" << std::endl;
+        return;
+    }
+
+    // Check if we are using Barnes-Hut method
+    SimulationMethod method = g_simulationState->simulationMethod.load();
+    bool isBarnesHut = (method == SimulationMethod::CPU_BARNES_HUT ||
+                        method == SimulationMethod::CPU_SFC_BARNES_HUT ||
+                        method == SimulationMethod::GPU_BARNES_HUT);
+
+    if (!isBarnesHut)
+    {
+        std::cout << "Método actual no es Barnes-Hut: " << static_cast<int>(method) << std::endl;
+        return;
+    }
+
+    // Obtener datos de simulación
+    auto simData = simThread->getSimulationData();
+    if (!simData.valid)
+    {
+        std::cout << "Error: simData no es válido" << std::endl;
+        return;
+    }
+
+    // Get octree data based on simulation type
+    std::vector<Node> octreeNodes;
+    int numNodes = 0;
+    int rootIndex = 0;
+
+    if (method == SimulationMethod::GPU_BARNES_HUT)
+    {
+        BarnesHut *bhSim = dynamic_cast<BarnesHut *>(simData.simulation);
+        if (bhSim)
+        {
+            numNodes = bhSim->getNumNodes();
+            std::cout << "Número de nodos en el octree: " << numNodes << std::endl;
+
+            octreeNodes.resize(numNodes);
+            if (bhSim->getOctreeNodes(octreeNodes.data(), numNodes))
+            {
+                std::cout << "Nodos de octree obtenidos correctamente" << std::endl;
+                rootIndex = bhSim->getRootNodeIndex();
+            }
+            else
+            {
+                std::cout << "Error al obtener nodos de octree" << std::endl;
+                return;
+            }
+        }
+        else
+        {
+            std::cout << "Error: dynamic_cast a BarnesHut falló" << std::endl;
+            return;
+        }
+    }
+    else if (method == SimulationMethod::CPU_BARNES_HUT ||
+             method == SimulationMethod::CPU_SFC_BARNES_HUT)
+    {
+        // Handle CPU Barnes-Hut
+        CPUBarnesHut *cpuBhSim = dynamic_cast<CPUBarnesHut *>(simData.simulation);
+        if (cpuBhSim)
+        {
+            // Para CPU Barnes-Hut necesitaríamos añadir métodos similares
+            // (getNumNodes, getOctreeNodes, etc.)
+            // Si no están implementados, esta parte no se ejecutará
+            return;
+        }
+    }
+
+    // Update visualization if we have valid data
+    if (numNodes > 0 && !octreeNodes.empty()) {
+        std::cout << "Actualizando visualización con " << numNodes << " nodos" << std::endl;
+        renderer.updateOctreeVisualization(
+            octreeNodes.data(),
+            numNodes,
+            rootIndex,
+            g_simulationState->octreeMaxDepth
+        );
+    } else {
+        std::cout << "No hay nodos válidos para renderizar" << std::endl;
     }
 }
 
@@ -257,6 +361,12 @@ int main(int argc, char **argv)
         simulationState.numBodies.store(config.initialBodies);
         simulationState.useSFC.store(config.useSFC);
 
+        // Inicializar variables para visualización de octree
+        simulationState.showOctree = false;
+        simulationState.octreeMaxDepth = 3;
+        simulationState.octreeOpacity = 0.5f;
+        simulationState.octreeColorByMass = true;
+
         // Create OpenGL renderer
         OpenGLRenderer renderer(simulationState);
         renderer.init();
@@ -270,7 +380,7 @@ int main(int argc, char **argv)
         g_simulationState = &simulationState;
 
         // Main render loop
-        renderLoop(window, simulationState, renderer, uiManager);
+        renderLoop(window, simulationState, simulationThread, renderer, uiManager);
 
         // Cleanup
         simulationState.running.store(false);

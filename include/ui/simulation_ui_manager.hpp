@@ -34,7 +34,7 @@ private:
     // void renderDistributionOptions();
     // void renderSimulationOptionsPanel();
     void renderSimulationMethodSelector();
-
+    void renderOctreeVisualizationOptions();
     void renderBasicControls();
     void renderVisualizationOptions();
     void renderBodyGenerationOptions();

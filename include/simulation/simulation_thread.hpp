@@ -11,19 +11,21 @@
 #include <atomic>
 #include <memory>
 #include <chrono>
+#include <mutex>
 
-/**
- * @brief Class to encapsulate simulation thread logic
- *
- * This class manages the simulation thread, handling state updates
- * and coordinating with the rendering thread.
- */
+// Estructura para compartir datos de simulación de forma segura entre hilos
+struct SimulationData {
+    SimulationBase* simulation;  // Puntero no administrado (raw pointer)
+    bool valid;                  // Indica si los datos son válidos
+};
+
 class SimulationThread
 {
 private:
     SimulationState *state;
     std::thread thread;
     std::unique_ptr<SimulationBase> simulation;
+    std::mutex simulationMutex;  // Mutex para proteger el acceso a simulation
 
     // Current simulation parameters (for detecting changes)
     int currentNumBodies;
@@ -45,59 +47,28 @@ private:
     double frameTimeAccum;
     int frameCount;
 
-    /**
-     * @brief Main thread function that runs the simulation
-     */
     void run();
 
-    /**
-     * @brief Check if simulation parameters have changed
-     * @return true if restart is needed, false otherwise
-     */
     bool checkForParameterChanges();
 
-    /**
-     * @brief Update current parameter values from state
-     */
     void updateCurrentParameters();
 
-    /**
-     * @brief Update visualization data for rendering
-     */
     void updateVisualizationData();
 
-    /**
-     * @brief Update performance metrics
-     * @param frameTime Time taken to process this frame in milliseconds
-     */
     void updatePerformanceMetrics(double frameTime);
 
 public:
-    /**
-     * @brief Constructor
-     * @param simulationState Pointer to shared simulation state
-     */
     explicit SimulationThread(SimulationState *simulationState);
 
-    /**
-     * @brief Destructor
-     */
     ~SimulationThread();
 
-    /**
-     * @brief Start the simulation thread
-     */
     void start();
 
-    /**
-     * @brief Stop the simulation thread and wait for it to finish
-     */
     void stop();
 
-    /**
-     * @brief Join the simulation thread (wait for it to finish)
-     */
     void join();
+
+    SimulationData getSimulationData();
 };
 
 #endif // SIMULATION_THREAD_HPP

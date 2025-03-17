@@ -50,7 +50,7 @@ const char *vertexShaderSource = R"(
         float distanceScale = 10.0 / (1.0 + vDistance * 0.00001);
         
         // Combine all scaling factors
-        gl_PointSize = min(uPointSize * massScale * clamp(distanceScale, 0.1, 15.0), 10.0);
+        gl_PointSize = min(uPointSize * 1.0 * clamp(distanceScale, 0.1, 15.0), 10.0);
         
         // Pass mass to fragment shader
         vMass = aMass;
@@ -79,6 +79,29 @@ const char *fragmentShaderSource = R"(
         
         // Simply output white with full opacity
         FragColor = vec4(bodyColor, 1.0);
+    }
+)";
+
+const char *octreeVertexShaderSource = R"(
+    #version 330 core
+    layout (location = 0) in vec3 aPosition;
+    
+    uniform mat4 uProjection;
+    uniform mat4 uView;
+    
+    void main() {
+        gl_Position = uProjection * uView * vec4(aPosition, 1.0);
+    }
+)";
+
+const char *octreeFragmentShaderSource = R"(
+    #version 330 core
+    in vec4 vColor;
+    out vec4 FragColor;
+    
+    void main() {
+        // Ignorar alpha y usar un color sólido y brillante para pruebas
+        FragColor = vec4(1.0, 0.0, 1.0, 1.0); // Magenta brillante
     }
 )";
 
@@ -163,6 +186,47 @@ void OpenGLRenderer::setupBuffers()
     glGenBuffers(1, &VBO_);
 }
 
+void OpenGLRenderer::initOctreeRenderer()
+{
+    // Compilar los shaders del octree
+    GLuint vertexShader = compileShader(GL_VERTEX_SHADER, octreeVertexShaderSource);
+    GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, octreeFragmentShaderSource);
+    
+    // Verificar compilación
+    if (!vertexShader || !fragmentShader) {
+        std::cerr << "ERROR: Failed to compile octree shaders" << std::endl;
+        return;
+    }
+    
+    // Crear programa de shaders
+    octreeShaderProgram_ = glCreateProgram();
+    glAttachShader(octreeShaderProgram_, vertexShader);
+    glAttachShader(octreeShaderProgram_, fragmentShader);
+    glLinkProgram(octreeShaderProgram_);
+    
+    // Verificar enlace
+    GLint success;
+    GLchar infoLog[512];
+    glGetProgramiv(octreeShaderProgram_, GL_LINK_STATUS, &success);
+    if (!success) {
+        glGetProgramInfoLog(octreeShaderProgram_, sizeof(infoLog), nullptr, infoLog);
+        std::cerr << "ERROR: Octree shader program linking failed\n" << infoLog << std::endl;
+        octreeShaderProgram_ = 0; // Asegurarse de que sea 0 para evitar usarlo
+    } else {
+        std::cout << "Octree shader program compilado y enlazado correctamente: ID=" 
+                  << octreeShaderProgram_ << std::endl;
+    }
+    
+    // Limpiar shaders
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+    
+    // Crear VAO y VBO para el octree
+    glGenVertexArrays(1, &octreeVAO_);
+    glGenBuffers(1, &octreeVBO_);
+}
+
+
 void OpenGLRenderer::init()
 {
     // Check OpenGL capabilities
@@ -234,6 +298,11 @@ void OpenGLRenderer::init()
                   << e.what() << std::endl;
     }
 
+    initOctreeRenderer();
+    
+    lastAspectRatio_ = 1.0f;
+    octreeVertexCount_ = 0;
+
     // Final error check
     err = glGetError();
     if (err != GL_NO_ERROR)
@@ -244,6 +313,8 @@ void OpenGLRenderer::init()
 
 void OpenGLRenderer::render(float aspectRatio)
 {
+    lastAspectRatio_ = aspectRatio;
+
     if (numBodies_ == 0 || shaderProgram_ == 0)
     {
         return;
@@ -288,12 +359,13 @@ void OpenGLRenderer::render(float aspectRatio)
     // Set uniform values
     glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
-    // glUniform1f(pointSizeLoc, 5.0f + (zoomFactor * particleSize));
+    // float adaptiveSize = particleSize * (0.1f + (0.01f / zoomFactor));
     float adaptiveSize = particleSize * (0.1f + (0.01f / zoomFactor));
     // Cap maximum size to avoid oversized particles
     adaptiveSize = std::min(adaptiveSize, 10.0f);
-
-    glUniform1f(pointSizeLoc, adaptiveSize);
+    
+    // glUniform1f(pointSizeLoc, adaptiveSize);
+    glUniform1f(pointSizeLoc, 5.0f + (zoomFactor * particleSize));
     glUniform1f(scaleFactorLoc, scaleFactor);
 
     // Clear buffers with a nice dark background
@@ -301,6 +373,10 @@ void OpenGLRenderer::render(float aspectRatio)
     glClearColor(41.0f / 255.0f, 41.0f / 255.0f, 40.0f / 255.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+    if (simulationState_.showOctree) {
+        renderOctree(aspectRatio);
+    }
+    
     // Bind VAO and draw points
     glBindVertexArray(VAO_);
     glDrawArrays(GL_POINTS, 0, numBodies_);
@@ -401,3 +477,148 @@ void OpenGLRenderer::updateBodies(Body *bodies, int numBodies)
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
 }
+
+void OpenGLRenderer::renderOctree(float aspectRatio)
+{
+    if (octreeVertexCount_ <= 0 || octreeShaderProgram_ == 0) {
+        return;
+    }
+
+    // Crear una matriz de proyección simple
+    glm::mat4 projection = glm::perspective(
+        glm::radians(45.0f),
+        aspectRatio,
+        0.1f,
+        1000.0f
+    );
+    
+    // Usar una vista fija que sabemos que funcionará
+    glm::mat4 view = glm::lookAt(
+        glm::vec3(0.0f, 0.0f, 5.0f), // Posición de cámara
+        glm::vec3(0.0f, 0.0f, 0.0f), // Punto al que mira
+        glm::vec3(0.0f, 1.0f, 0.0f)  // Vector "arriba"
+    );
+    
+    // Usar shader del octree
+    glUseProgram(octreeShaderProgram_);
+    
+    // Configurar uniforms
+    GLint projLoc = glGetUniformLocation(octreeShaderProgram_, "uProjection");
+    GLint viewLoc = glGetUniformLocation(octreeShaderProgram_, "uView");
+    GLint scaleLoc = glGetUniformLocation(octreeShaderProgram_, "uScaleFactor");
+    
+    glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
+    glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+    glUniform1f(scaleLoc, 0.01f); // Escala pequeña fija
+    
+    // Desactivar depth test para pruebas
+    glDisable(GL_DEPTH_TEST);
+    
+    // Líneas más gruesas
+    glLineWidth(5.0f);
+    
+    // Dibujar primero el octree y luego todo lo demás
+    glBindVertexArray(octreeVAO_);
+    glDrawArrays(GL_LINES, 0, octreeVertexCount_);
+    
+    // Restaurar depth test
+    glEnable(GL_DEPTH_TEST);
+    
+    // Limpiar
+    glBindVertexArray(0);
+    glUseProgram(0);
+}
+
+void OpenGLRenderer::updateOctreeVisualization(Node* nodes, int numNodes, int rootIndex, int maxDepth)
+{
+    // Ignorar los parámetros y crear un simple cubo de prueba
+    std::vector<float> vertices;
+    std::vector<float> colors;
+    
+    // Un cubo simple centrado en el origen
+    float size = 0.5f;
+    
+    // Vértices del cubo
+    float cubeVertices[] = {
+        // Cara frontal
+        -size, -size, -size,
+        size, -size, -size,
+        size, -size, -size,
+        size, size, -size,
+        size, size, -size,
+        -size, size, -size,
+        -size, size, -size,
+        -size, -size, -size,
+        
+        // Cara trasera
+        -size, -size, size,
+        size, -size, size,
+        size, -size, size,
+        size, size, size,
+        size, size, size,
+        -size, size, size,
+        -size, size, size,
+        -size, -size, size,
+        
+        // Conectores
+        -size, -size, -size,
+        -size, -size, size,
+        size, -size, -size,
+        size, -size, size,
+        size, size, -size,
+        size, size, size,
+        -size, size, -size,
+        -size, size, size
+    };
+    
+    // Convertir el array a vector
+    for (int i = 0; i < 24 * 3; i++) {
+        vertices.push_back(cubeVertices[i]);
+    }
+    
+    // Color rojo brillante para todas las líneas
+    for (int i = 0; i < 24; i++) {
+        colors.push_back(1.0f); // R
+        colors.push_back(0.0f); // G
+        colors.push_back(0.0f); // B
+        colors.push_back(1.0f); // A
+    }
+    
+    // Actualizar contador de vértices
+    octreeVertexCount_ = vertices.size() / 3;
+    
+    // Combinar vértices y colores
+    std::vector<float> combinedData;
+    
+    for (size_t i = 0; i < vertices.size() / 3; i++) {
+        // Vértice
+        combinedData.push_back(vertices[i * 3]);
+        combinedData.push_back(vertices[i * 3 + 1]);
+        combinedData.push_back(vertices[i * 3 + 2]);
+        
+        // Color
+        combinedData.push_back(colors[i * 4]);
+        combinedData.push_back(colors[i * 4 + 1]);
+        combinedData.push_back(colors[i * 4 + 2]);
+        combinedData.push_back(colors[i * 4 + 3]);
+    }
+    
+    // Actualizar buffer
+    glBindVertexArray(octreeVAO_);
+    glBindBuffer(GL_ARRAY_BUFFER, octreeVBO_);
+    
+    glBufferData(GL_ARRAY_BUFFER, combinedData.size() * sizeof(float), combinedData.data(), GL_DYNAMIC_DRAW);
+    
+    // Configurar atributos
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 7 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 7 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+    
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+    
+    std::cout << "Generado cubo de prueba con " << octreeVertexCount_ << " vértices" << std::endl;
+}
+

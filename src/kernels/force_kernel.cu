@@ -1,5 +1,6 @@
 #include "../../include/common/types.cuh"
 #include "../../include/common/constants.cuh"
+#include <stdio.h>
 
 __device__ double getDistance(Vector pos1, Vector pos2)
 {
@@ -24,9 +25,10 @@ __device__ void ComputeForce(Node *node, Body *bodies, int nodeIndex, int bodyIn
     // Caso de nodo hoja: usar el centro de masa para aproximar la fuerza
     if (curNode.isLeaf)
     {   
-        // printf("Condition: %d\n", curNode.centerMass.x != -1 && !isCollide(bi, curNode.centerMass));
         if (curNode.centerMass.x != -1 && !isCollide(bi, curNode.centerMass))
+        // if (curNode.centerMass.x != -1)
         {
+            // printf("Leaf node force calculation: Body %d, Node %d\n", bodyIndex, nodeIndex);
             Vector rij = {
                 curNode.centerMass.x - bi.position.x,
                 curNode.centerMass.y - bi.position.y,
@@ -47,7 +49,7 @@ __device__ void ComputeForce(Node *node, Body *bodies, int nodeIndex, int bodyIn
 
     // Caso de aproximación multipolo
     double distance = getDistance(bi.position, curNode.centerMass);
-    double sd = width / distance; // TAMANIO DE LA REGION / DISTANCIA, kd-tree
+    double sd = width / distance; // TAMANIO DE LA REGION / DISTANCIA
     if (sd < THETA)
     {
         if (!isCollide(bi, curNode.centerMass))

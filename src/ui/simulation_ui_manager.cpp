@@ -53,6 +53,12 @@ void SimulationUIManager::renderUI(GLFWwindow *window)
             renderAdvancedOptions();
             ImGui::EndTabItem();
         }
+        
+        if (ImGui::BeginTabItem("Octree View"))
+        {
+            renderOctreeVisualizationOptions();
+            ImGui::EndTabItem();
+        }
 
         ImGui::EndTabBar();
     }
@@ -538,5 +544,66 @@ void SimulationUIManager::renderSFCOptions()
     else
     {
         ImGui::TextWrapped("Enable Space-Filling Curve to access ordering options.");
+    }
+}
+
+void SimulationUIManager::renderOctreeVisualizationOptions()
+{
+    // Determinar si el método actual usa octree
+    SimulationMethod currentMethod = simulationState_.simulationMethod.load();
+    bool usesOctree = (currentMethod == SimulationMethod::CPU_BARNES_HUT ||
+                       currentMethod == SimulationMethod::CPU_SFC_BARNES_HUT ||
+                       currentMethod == SimulationMethod::GPU_BARNES_HUT);
+    
+    if (!usesOctree) {
+        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f), 
+                         "Octree visualization is only available for Barnes-Hut methods");
+        return;
+    }
+    
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Octree Visualization");
+    
+    // Toggle para mostrar/ocultar octree
+    bool showOctree = simulationState_.showOctree;
+    if (ImGui::Checkbox("Show Octree Structure", &showOctree)) {
+        simulationState_.showOctree = showOctree;
+    }
+    
+    if (showOctree) {
+        // Control de profundidad máxima
+        int maxDepth = simulationState_.octreeMaxDepth;
+        if (ImGui::SliderInt("Max Depth", &maxDepth, 1, 8)) {
+            simulationState_.octreeMaxDepth = maxDepth;
+        }
+        ImGui::TextWrapped("Lower depths show less detail but render faster");
+        
+        // Control de opacidad
+        float opacity = simulationState_.octreeOpacity;
+        if (ImGui::SliderFloat("Opacity", &opacity, 0.1f, 1.0f, "%.2f")) {
+            simulationState_.octreeOpacity = opacity;
+        }
+        
+        // Toggle para colorear por masa
+        bool colorByMass = simulationState_.octreeColorByMass;
+        if (ImGui::Checkbox("Color Nodes by Mass", &colorByMass)) {
+            simulationState_.octreeColorByMass = colorByMass;
+        }
+        
+        if (colorByMass) {
+            ImGui::TextWrapped("Red nodes contain more mass");
+        } else {
+            ImGui::TextWrapped("Colors represent depth in the tree");
+        }
+        
+        // Información sobre el octree
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Octree Statistics");
+        ImGui::Text("Bodies in simulation: %d", simulationState_.numBodies.load());
+        
+        // Nota: Estos valores son estáticos, en una implementación final
+        // deberían ser actualizados con datos reales del octree
+        ImGui::Text("Leaf nodes: ~%d", simulationState_.numBodies.load());
+        ImGui::Text("Internal nodes: ~%d", simulationState_.numBodies.load() / 2);
+        ImGui::Text("Approximate depth: ~%d", static_cast<int>(log2(simulationState_.numBodies.load() / 8) + 1));
     }
 }

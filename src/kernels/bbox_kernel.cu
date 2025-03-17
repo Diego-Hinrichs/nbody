@@ -62,13 +62,13 @@ __global__ void ComputeBoundingBoxKernel(Node *node, Body *bodies, int *mutex, i
         while (atomicCAS(mutex, 0, 1) != 0)
             ;
         // Actualizar mínimos con margen
-        node[0].topLeftFront.x = fminf(node[0].topLeftFront.x, topLeftFrontX[0] + 1.0e10);
-        node[0].topLeftFront.y = fminf(node[0].topLeftFront.y, topLeftFrontY[0] + 1.0e10);
-        node[0].topLeftFront.z = fminf(node[0].topLeftFront.z, topLeftFrontZ[0] + 1.0e10);
-        
-        node[0].botRightBack.x = fmaxf(node[0].botRightBack.x, botRightBackX[0] - 1.0e10);
-        node[0].botRightBack.y = fmaxf(node[0].botRightBack.y, botRightBackY[0] - 1.0e10);
-        node[0].botRightBack.z = fmaxf(node[0].botRightBack.z, botRightBackZ[0] - 1.0e10);
+        node[0].topLeftFront.x = fminf(node[0].topLeftFront.x, topLeftFrontX[0]) - 1.0e10;
+        node[0].topLeftFront.y = fminf(node[0].topLeftFront.y, topLeftFrontY[0]) - 1.0e10;
+        node[0].topLeftFront.z = fminf(node[0].topLeftFront.z, topLeftFrontZ[0]) - 1.0e10;
+
+        node[0].botRightBack.x = fmaxf(node[0].botRightBack.x, botRightBackX[0]) + 1.0e10;
+        node[0].botRightBack.y = fmaxf(node[0].botRightBack.y, botRightBackY[0]) + 1.0e10;
+        node[0].botRightBack.z = fmaxf(node[0].botRightBack.z, botRightBackZ[0]) + 1.0e10;
 
         atomicExch(mutex, 0);
     }

@@ -52,17 +52,20 @@ void SimulationThread::run()
 {
     try
     {
-        // Create initial simulation
-        simulation = SimulationFactory::createFromState(*state);
-
-        if (!simulation)
+        // Crear simulación inicial
         {
-            std::cerr << "Failed to create simulation" << std::endl;
-            return;
-        }
+            std::lock_guard<std::mutex> lock(simulationMutex);
+            simulation = SimulationFactory::createFromState(*state);
 
-        // Setup initial conditions
-        simulation->setup();
+            if (!simulation)
+            {
+                std::cerr << "Failed to create simulation" << std::endl;
+                return;
+            }
+
+            // Setup initial conditions
+            simulation->setup();
+        }
 
         // Initialize performance tracking
         lastTime = std::chrono::steady_clock::now();
@@ -95,16 +98,19 @@ void SimulationThread::run()
                 // Recreate the simulation
                 try
                 {
-                    simulation = SimulationFactory::createFromState(*state);
-
-                    if (!simulation)
                     {
-                        std::cerr << "Failed to recreate simulation" << std::endl;
-                        break;
-                    }
+                        std::lock_guard<std::mutex> lock(simulationMutex);
+                        simulation = SimulationFactory::createFromState(*state);
 
-                    // Setup the simulation
-                    simulation->setup();
+                        if (!simulation)
+                        {
+                            std::cerr << "Failed to recreate simulation" << std::endl;
+                            break;
+                        }
+
+                        // Setup the simulation
+                        simulation->setup();
+                    }
                 }
                 catch (const std::exception &e)
                 {
@@ -120,7 +126,12 @@ void SimulationThread::run()
             }
 
             // Update simulation
-            simulation->update();
+            {
+                std::lock_guard<std::mutex> lock(simulationMutex);
+                if (simulation) {
+                    simulation->update();
+                }
+            }
 
             // Increment frame counter
             frameCounter++;
@@ -247,4 +258,23 @@ void SimulationThread::updatePerformanceMetrics(double frameTime)
         frameCount = 0;
         lastTime = now;
     }
+}
+
+SimulationData SimulationThread::getSimulationData()
+{
+    SimulationData data;
+    
+    // Acceder a la simulación bajo protección de mutex
+    {
+        std::lock_guard<std::mutex> lock(simulationMutex);
+        if (simulation) {
+            data.simulation = simulation.get();
+            data.valid = true;
+        } else {
+            data.simulation = nullptr;
+            data.valid = false;
+        }
+    }
+    
+    return data;
 }

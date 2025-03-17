@@ -4,7 +4,7 @@
 SimulationState::SimulationState() : running(true),
                                      restart(false),
                                      isPaused(false),
-                                     simulationMethod(SimulationMethod::CPU_BARNES_HUT), // Default to Barnes-Hut
+                                     simulationMethod(SimulationMethod::GPU_BARNES_HUT), // Default to Barnes-Hut
                                      useOpenMP(true),                                    // Enable OpenMP by default
                                      openMPThreads(omp_get_max_threads()),               // Use all available cores by default
                                      useSFC(false),
@@ -24,7 +24,11 @@ SimulationState::SimulationState() : running(true),
                                      lastIterationTime(0.0),
                                      showCommandMenu(false),
                                      selectedCommandIndex(0),
-                                     selectedParticleOption(0)
+                                     selectedParticleOption(0),
+                                     showOctree(false),
+                                     octreeMaxDepth(3),
+                                     octreeOpacity(0.5f),
+                                     octreeColorByMass(true)
 {
     // Initialize seed input buffer with current seed
     snprintf(seedInputBuffer, sizeof(seedInputBuffer), "%u", randomSeed.load());

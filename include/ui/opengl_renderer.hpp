@@ -8,6 +8,7 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <vector>
+#include <functional>
 
 #include "../common/types.cuh"
 #include "../ui/simulation_state.hpp"
@@ -29,6 +30,10 @@ public:
     void setParticleSize(float size) { particleSize = size; }
     float getParticleSize() const { return particleSize; }
 
+    // New methods for octree visualization
+    void updateOctreeVisualization(Node* nodes, int numNodes, int rootIndex, int maxDepth);
+    void renderOctree(float aspectRatio);
+
 private:
     // Reference to simulation state for dynamic parameters
     SimulationState &simulationState_;
@@ -42,10 +47,21 @@ private:
     int numBodies_;
     float particleSize = 5.0f;
 
+    // Octree visualization resources
+    GLuint octreeShaderProgram_;
+    GLuint octreeVBO_, octreeVAO_;
+    int octreeVertexCount_;
+    
+    // Rendering state
+    float lastAspectRatio_;
+
     // Shader compilation helpers
     GLuint compileShader(GLenum type, const char *source);
     void createShaderProgram();
     void setupBuffers();
+    
+    // Octree shader creation
+    void initOctreeRenderer();
 };
 
 #endif // OPENGL_RENDERER_H
