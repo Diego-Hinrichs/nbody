@@ -1,26 +1,14 @@
 #include "../../include/simulation/implementations/gpu/direct_sum.cuh"
 #include <iostream>
 
-/**
- * @brief CUDA kernel for direct force calculation between all body pairs
- *
- * This kernel computes the gravitational forces between all pairs of bodies
- * using the Direct Sum approach (O(n²) complexity).
- *
- * @param bodies Array of body structures
- * @param nBodies Number of bodies in the simulation
- */
 __global__ void DirectSumForceKernel(Body *bodies, int nBodies)
 {
-    // Reducir el tamaño del array de memoria compartida
-    // Usar un valor más pequeño que BLOCK_SIZE
     __shared__ Vector sharedPos[256];  // Reducido de BLOCK_SIZE
     __shared__ double sharedMass[256]; // Reducido de BLOCK_SIZE
     
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int tx = threadIdx.x;
     
-    // Cargar datos solo si el índice es válido
     Vector myPos = Vector(0, 0, 0);
     Vector myVel = Vector(0, 0, 0);
     Vector myAcc = Vector(0, 0, 0);

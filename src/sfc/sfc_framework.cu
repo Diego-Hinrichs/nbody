@@ -272,21 +272,6 @@ namespace sfc
 
 } // namespace sfc
 
-//-------------------------------------------------------------------------
-// CUDA Kernels Implementation
-//-------------------------------------------------------------------------
-
-/**
- * @brief Kernel to compute SFC codes for bodies
- *
- * @param bodies Array of bodies
- * @param codes Output array for SFC codes
- * @param indices Output array for indices
- * @param numBodies Number of bodies
- * @param minBound Minimum domain bounds
- * @param maxBound Maximum domain bounds
- * @param isHilbert Whether to use Hilbert (true) or Morton (false) curve
- */
 __global__ void ComputeSFCCodesKernelForBodies(
     Body *bodies, uint64_t *codes, int *indices,
     int numBodies, Vector minBound, Vector maxBound,
@@ -350,17 +335,6 @@ __global__ void ComputeSFCCodesKernelForBodies(
     }
 }
 
-/**
- * @brief Kernel to compute SFC codes for octree nodes
- *
- * @param nodes Array of nodes
- * @param codes Output array for SFC codes
- * @param indices Output array for indices
- * @param numNodes Number of nodes
- * @param minBound Minimum domain bounds
- * @param maxBound Maximum domain bounds
- * @param isHilbert Whether to use Hilbert (true) or Morton (false) curve
- */
 __global__ void ComputeSFCCodesKernelForNodes(
     Node *nodes, uint64_t *codes, int *indices,
     int numNodes, Vector minBound, Vector maxBound,

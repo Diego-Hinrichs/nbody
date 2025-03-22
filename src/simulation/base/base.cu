@@ -128,7 +128,7 @@ void SimulationBase::initSolarSystem(Body *bodies, int numBodies, Vector centerP
     int mediumCount = numBodies / 8; // 12.5% planetas medianos
 
     // Generate random bodies in a spherical distribution
-    for (int i = 1; i < numBodies; ++i)
+    for (int i = 0; i < numBodies; ++i)
     {
         // Generate random spherical coordinates
         double u = distUni(rng); // For theta
@@ -175,7 +175,7 @@ void SimulationBase::initSolarSystem(Body *bodies, int numBodies, Vector centerP
         {
             // Planetas medianos (tipo Tierra/Neptuno)
             double massFactor = 5.0 + (distUni(rng)) * 15.0;
-            bodies[i].mass = EARTH_MASS * massFactor;
+            bodies[i].mass = EARTH_MASS;
             bodies[i].radius = EARTH_DIA * 2.0;
         }
         else
@@ -212,14 +212,6 @@ void SimulationBase::initSolarSystem(Body *bodies, int numBodies, Vector centerP
         bodies[i].velocity = perpendicular;
         bodies[i].acceleration = Vector(0.0, 0.0, 0.0);
     }
-
-    // Place a sun in the center
-    bodies[0].isDynamic = false;
-    bodies[0].mass = SUN_MASS;
-    bodies[0].radius = SUN_DIA / 2;
-    bodies[0].position = centerPos;
-    bodies[0].velocity = Vector(0.0, 0.0, 0.0);
-    bodies[0].acceleration = Vector(0.0, 0.0, 0.0);
 }
 
 void SimulationBase::initGalaxy(Body *bodies, int numBodies, Vector centerPos, unsigned int seed)
@@ -246,7 +238,7 @@ void SimulationBase::initGalaxy(Body *bodies, int numBodies, Vector centerPos, u
 
     // Estrellas masivas cerca del núcleo (5% del total)
     int coreBodies = numBodies * 0.05;
-    for (int i = 1; i <= coreBodies; i++)
+    for (int i = 0; i <= coreBodies; i++)
     {
         // Distribución radial del núcleo (concentración central)
         double r = coreRadius * pow(distUni(rng), 0.5);
@@ -584,7 +576,7 @@ void SimulationBase::initUniformSphere(Body *bodies, int numBodies, Vector cente
     bodies[0].acceleration = Vector(0.0, 0.0, 0.0);
 
     // Distribuir cuerpos uniformemente en la esfera
-    for (int i = 1; i < numBodies; i++)
+    for (int i = 0; i < numBodies; i++)
     {
         // Distribución uniforme en una esfera
         // Usamos el método de rechazo para generar puntos uniformes en una esfera
@@ -610,9 +602,9 @@ void SimulationBase::initUniformSphere(Body *bodies, int numBodies, Vector cente
 
         // Velocidades aleatorias (distribución normal)
         Vector velocity;
-        velocity.x = distNorm(rng) * 1.0e4;
-        velocity.y = distNorm(rng) * 1.0e4;
-        velocity.z = distNorm(rng) * 1.0e4;
+        velocity.x = distNorm(rng) * 1.0e3;
+        velocity.y = distNorm(rng) * 1.0e3;
+        velocity.z = distNorm(rng) * 1.0e3;
 
         bodies[i].velocity = velocity;
         bodies[i].acceleration = Vector(0.0, 0.0, 0.0);

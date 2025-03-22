@@ -122,7 +122,6 @@ void BarnesHut::update()
     checkInitialization();
     CudaTimer timer(metrics.totalTimeMs);
     resetOctree();
-    // computeBoundingBox();
     constructOctree();
     computeForces();
     CHECK_LAST_CUDA_ERROR();

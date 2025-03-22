@@ -160,9 +160,6 @@ void SFCCPUDirectSum::orderBodiesBySFC()
     // Make sure bodies are on host side
     copyBodiesFromDevice();
 
-    // First, compute the domain's bounding box
-    computeBoundingBox();
-
     // Compute Morton codes for each body
     bool useOpenMP = this->useOpenMP;
     int numThreads = this->numThreads;

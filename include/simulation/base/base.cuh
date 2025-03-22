@@ -12,7 +12,6 @@
 __global__ void ResetKernel(Node *node, int *mutex, int nNodes, int nBodies);
 __global__ void ComputeBoundingBoxKernel(Node *node, Body *bodies, int *mutex, int nBodies);
 __global__ void ConstructOctTreeKernel(Node *node, Body *bodies, Body *buffer, int nodeIndex, int nNodes, int nBodies, int leafLimit);
-// __global__ void ConstructOctTreeKernel(Node *node, Body *bodies, Body *buffer, int nodeIndex, int nNodes, int nBodies, int leafLimit, int depth);
 __global__ void ComputeForceKernel(Node *node, Body *bodies, int nNodes, int nBodies, int leafLimit);
 
 class SimulationBase
@@ -24,14 +23,11 @@ protected:
 
     SimulationMetrics metrics; // Performance metrics
 
-    // Configuration parameters
     BodyDistribution distribution;
     unsigned int randomSeed;
 
-    // Flag to indicate whether the simulation is initialized
     bool isInitialized;
 
-    // Typedef for body initialization functions
     using InitFunction = std::function<void(Body *, int, Vector, unsigned int)>;
 
     virtual void initBodies(BodyDistribution dist, unsigned int seed);

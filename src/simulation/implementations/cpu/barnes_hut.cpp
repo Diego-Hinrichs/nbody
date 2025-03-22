@@ -445,7 +445,6 @@ void CPUBarnesHut::update()
     CudaTimer timer(metrics.totalTimeMs);
 
     // Execute the Barnes-Hut algorithm steps
-    computeBoundingBox();
     buildOctree();
     computeForces();
 }
