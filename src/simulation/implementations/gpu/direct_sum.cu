@@ -5,67 +5,77 @@ __global__ void DirectSumForceKernel(Body *bodies, int nBodies)
 {
     __shared__ Vector sharedPos[256];  // Reducido de BLOCK_SIZE
     __shared__ double sharedMass[256]; // Reducido de BLOCK_SIZE
-    
+
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int tx = threadIdx.x;
-    
+
     Vector myPos = Vector(0, 0, 0);
     Vector myVel = Vector(0, 0, 0);
     Vector myAcc = Vector(0, 0, 0);
     double myMass = 0.0;
     bool isDynamic = false;
-    
-    if (i < nBodies) {
+
+    if (i < nBodies)
+    {
         myPos = bodies[i].position;
         myVel = bodies[i].velocity;
         myMass = bodies[i].mass;
         isDynamic = bodies[i].isDynamic;
     }
-    
+
     // Reducir la cantidad de cálculos
     const int tileSize = 256; // Usar un tamaño de tile más pequeño
-    
+
     // Procesar todos los tiles
-    for (int tile = 0; tile < (nBodies + tileSize - 1) / tileSize; ++tile) {
+    for (int tile = 0; tile < (nBodies + tileSize - 1) / tileSize; ++tile)
+    {
         // Cargar este tile a memoria compartida
         int idx = tile * tileSize + tx;
-        
+
         // Solo cargar datos válidos a memoria compartida
-        if (tx < tileSize) { // Asegurarse de que no excedemos el tamaño del array
-            if (idx < nBodies) {
+        if (tx < tileSize)
+        { // Asegurarse de que no excedemos el tamaño del array
+            if (idx < nBodies)
+            {
                 sharedPos[tx] = bodies[idx].position;
                 sharedMass[tx] = bodies[idx].mass;
-            } else {
+            }
+            else
+            {
                 sharedPos[tx] = Vector(0, 0, 0);
                 sharedMass[tx] = 0.0;
             }
         }
-        
+
         __syncthreads();
-        
+
         // Calcular fuerza solo para cuerpos válidos y dinámicos
-        if (i < nBodies && isDynamic) {
+        if (i < nBodies && isDynamic)
+        {
             // Limitar el bucle al tamaño real del tile
             int tileLimit = min(tileSize, nBodies - tile * tileSize);
-            
-            for (int j = 0; j < tileLimit; ++j) {
+
+            for (int j = 0; j < tileLimit; ++j)
+            {
                 int jBody = tile * tileSize + j;
-                
+
                 // Evitar auto-interacción
-                if (jBody != i) {
+                if (jBody != i)
+                {
                     // Vector de distancia
                     double rx = sharedPos[j].x - myPos.x;
                     double ry = sharedPos[j].y - myPos.y;
                     double rz = sharedPos[j].z - myPos.z;
-                    
+
                     // Distancia al cuadrado con suavizado
-                    double distSqr = rx*rx + ry*ry + rz*rz + E*E;
+                    double distSqr = rx * rx + ry * ry + rz * rz + E * E;
                     double dist = sqrt(distSqr);
-                    
+
                     // Aplicar fuerza solo si estamos por encima del umbral de colisión
-                    if (dist >= COLLISION_TH) {
+                    if (dist >= COLLISION_TH)
+                    {
                         double forceMag = (GRAVITY * myMass * sharedMass[j]) / (dist * distSqr);
-                        
+
                         // Acumular aceleración
                         myAcc.x += rx * forceMag / myMass;
                         myAcc.y += ry * forceMag / myMass;
@@ -74,21 +84,22 @@ __global__ void DirectSumForceKernel(Body *bodies, int nBodies)
                 }
             }
         }
-        
+
         __syncthreads();
     }
-    
+
     // Actualizar el cuerpo solo si es válido y dinámico
-    if (i < nBodies && isDynamic) {
+    if (i < nBodies && isDynamic)
+    {
         // Guardar aceleración
         bodies[i].acceleration = myAcc;
-        
+
         // Actualizar velocidad
         myVel.x += myAcc.x * DT;
         myVel.y += myAcc.y * DT;
         myVel.z += myAcc.z * DT;
         bodies[i].velocity = myVel;
-        
+
         // Actualizar posición
         myPos.x += myVel.x * DT;
         myPos.y += myVel.y * DT;
@@ -97,16 +108,13 @@ __global__ void DirectSumForceKernel(Body *bodies, int nBodies)
     }
 }
 
-GPUDirectSum::GPUDirectSum(int numBodies, BodyDistribution dist, unsigned int seed)
-    : SimulationBase(numBodies, dist, seed)
+GPUDirectSum::GPUDirectSum(int numBodies, BodyDistribution dist, unsigned int seed, MassDistribution massDist)
+    : SimulationBase(numBodies, dist, seed, massDist)
 {
     std::cout << "GPU Direct Sum Simulation created with " << numBodies << " bodies." << std::endl;
 }
 
-GPUDirectSum::~GPUDirectSum()
-{
-    // Base class destructor handles most memory cleanup
-}
+GPUDirectSum::~GPUDirectSum() {}
 
 void GPUDirectSum::computeForces()
 {
@@ -131,9 +139,9 @@ void GPUDirectSum::update()
     CudaTimer timer(metrics.totalTimeMs);
 
     // Reset unused metrics
-    metrics.resetTimeMs = 0.0f;  // Not used
-    metrics.bboxTimeMs = 0.0f;   // Not used
-    metrics.octreeTimeMs = 0.0f; // Not used
+    metrics.resetTimeMs = 0.0f;
+    metrics.bboxTimeMs = 0.0f;
+    metrics.octreeTimeMs = 0.0f;
 
     // Compute forces and update positions in one kernel
     computeForces();

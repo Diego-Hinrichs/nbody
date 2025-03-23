@@ -2,9 +2,14 @@
 #include <cmath>
 #include <iostream>
 
-CPUDirectSum::CPUDirectSum(int numBodies, bool useParallelization, int threads,
-                           BodyDistribution dist, unsigned int seed)
-    : SimulationBase(numBodies, dist, seed),
+CPUDirectSum::CPUDirectSum(
+    int numBodies,
+    bool useParallelization,
+    int threads,
+    BodyDistribution dist, 
+    unsigned int seed,
+    MassDistribution massDist)
+    : SimulationBase(numBodies, dist, seed, massDist),
       useOpenMP(useParallelization)
 {
     // Initialize thread count

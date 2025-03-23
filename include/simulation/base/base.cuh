@@ -24,19 +24,21 @@ protected:
     SimulationMetrics metrics; // Performance metrics
 
     BodyDistribution distribution;
+    MassDistribution massDistribution;
     unsigned int randomSeed;
 
     bool isInitialized;
 
-    using InitFunction = std::function<void(Body *, int, Vector, unsigned int)>;
+    using InitFunction = std::function<void(Body *, int, Vector, unsigned int, MassDistribution)>;
 
-    virtual void initBodies(BodyDistribution dist, unsigned int seed);
+    virtual void initBodies(BodyDistribution dist, unsigned int seed, MassDistribution massDist);
     void distributeWithFunction(InitFunction initFunc);
-    static void initSolarSystem(Body *bodies, int numBodies, Vector centerPos, unsigned int seed);
-    static void initGalaxy(Body *bodies, int numBodies, Vector centerPos, unsigned int seed);
-    static void initBinarySystem(Body *bodies, int numBodies, Vector centerPos, unsigned int seed);
-    static void initUniformSphere(Body *bodies, int numBodies, Vector centerPos, unsigned int seed);
-    static void initRandomClusters(Body *bodies, int numBodies, Vector centerPos, unsigned int seed);
+    static void initSolarSystem(Body *bodies, int numBodies, Vector centerPos, unsigned int seed, MassDistribution massDist);
+    static void initGalaxy(Body *bodies, int numBodies, Vector centerPos, unsigned int seed, MassDistribution massDist);
+    static void initBinarySystem(Body *bodies, int numBodies, Vector centerPos, unsigned int seed, MassDistribution massDist);
+    static void initUniformSphere(Body *bodies, int numBodies, Vector centerPos, unsigned int seed, MassDistribution massDist);
+    static void initRandomClusters(Body *bodies, int numBodies, Vector centerPos, unsigned int seed, MassDistribution massDist);
+    static void initRandomBodies(Body *bodies, int numBodies, Vector centerPos, unsigned int seed, MassDistribution massDist);
     void checkInitialization() const
     {
         if (!isInitialized)
@@ -47,17 +49,18 @@ protected:
     }
 
 public:
-
     SimulationBase(int numBodies,
                    BodyDistribution dist = BodyDistribution::SOLAR_SYSTEM,
-                   unsigned int seed = static_cast<unsigned int>(time(nullptr)));
+                   unsigned int seed = static_cast<unsigned int>(time(nullptr)),
+                   MassDistribution massDist = MassDistribution::UNIFORM);
 
     virtual ~SimulationBase();
     virtual void setup();
-    void setDistributionAndSeed(BodyDistribution dist, unsigned int seed)
+    void setDistributionAndSeed(BodyDistribution dist, unsigned int seed, MassDistribution massDist)
     {
         distribution = dist;
         randomSeed = seed;
+        massDistribution = massDist;
     }
 
     virtual void update() = 0;
@@ -68,7 +71,6 @@ public:
     {
         return h_bodies;
     }
-
 
     Body *getDeviceBodies() const
     {
@@ -85,5 +87,4 @@ public:
         return metrics;
     }
 };
-
 #endif // BASE_CUH

@@ -1,7 +1,6 @@
 #ifndef SIMULATION_FACTORY_HPP
 #define SIMULATION_FACTORY_HPP
 
-
 #include "base/base.cuh"
 #include "implementations/cpu/direct_sum.hpp"
 #include "implementations/cpu/sfc_variants.hpp"
@@ -28,6 +27,7 @@ public:
         int reorderFreq,
         sfc::CurveType curveType,
         BodyDistribution distribution,
+        MassDistribution massDistribution,
         unsigned int seed,
         bool useOpenMP,
         int numThreads);

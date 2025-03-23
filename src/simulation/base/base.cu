@@ -5,11 +5,12 @@
 #include <random>
 #include <algorithm>
 
-SimulationBase::SimulationBase(int numBodies, BodyDistribution dist, unsigned int seed)
+SimulationBase::SimulationBase(int numBodies, BodyDistribution dist, unsigned int seed, MassDistribution massDist)
     : nBodies(numBodies),
       h_bodies(nullptr),
       d_bodies(nullptr),
       distribution(dist),
+      massDistribution(massDist),
       randomSeed(seed),
       isInitialized(false)
 {
@@ -18,7 +19,6 @@ SimulationBase::SimulationBase(int numBodies, BodyDistribution dist, unsigned in
 
     // Allocate device memory for bodies
     CHECK_CUDA_ERROR(cudaMalloc(&d_bodies, nBodies * sizeof(Body)));
-
 }
 
 SimulationBase::~SimulationBase()
@@ -37,7 +37,7 @@ SimulationBase::~SimulationBase()
     }
 }
 
-void SimulationBase::initBodies(BodyDistribution dist, unsigned int seed)
+void SimulationBase::initBodies(BodyDistribution dist, unsigned int seed, MassDistribution massDist)
 {
     Vector centerPos(CENTERX, CENTERY, CENTERZ);
 
@@ -49,35 +49,48 @@ void SimulationBase::initBodies(BodyDistribution dist, unsigned int seed)
                                          std::placeholders::_1,
                                          std::placeholders::_2,
                                          centerPos,
-                                         seed));
+                                         seed,
+                                         massDist));
         break;
     case BodyDistribution::GALAXY:
         distributeWithFunction(std::bind(&SimulationBase::initGalaxy,
                                          std::placeholders::_1,
                                          std::placeholders::_2,
                                          centerPos,
-                                         seed));
+                                         seed,
+                                         massDist));
         break;
     case BodyDistribution::BINARY_SYSTEM:
         distributeWithFunction(std::bind(&SimulationBase::initBinarySystem,
                                          std::placeholders::_1,
                                          std::placeholders::_2,
                                          centerPos,
-                                         seed));
+                                         seed,
+                                         massDist));
         break;
     case BodyDistribution::UNIFORM_SPHERE:
         distributeWithFunction(std::bind(&SimulationBase::initUniformSphere,
                                          std::placeholders::_1,
                                          std::placeholders::_2,
                                          centerPos,
-                                         seed));
+                                         seed,
+                                         massDist));
         break;
     case BodyDistribution::RANDOM_CLUSTERS:
         distributeWithFunction(std::bind(&SimulationBase::initRandomClusters,
                                          std::placeholders::_1,
                                          std::placeholders::_2,
                                          centerPos,
-                                         seed));
+                                         seed,
+                                         massDist));
+        break;
+    case BodyDistribution::RANDOM_BODIES:
+        distributeWithFunction(std::bind(&SimulationBase::initRandomBodies,
+                                         std::placeholders::_1,
+                                         std::placeholders::_2,
+                                         centerPos,
+                                         seed,
+                                         massDist));
         break;
     default:
         // Default to solar system
@@ -85,7 +98,8 @@ void SimulationBase::initBodies(BodyDistribution dist, unsigned int seed)
                                          std::placeholders::_1,
                                          std::placeholders::_2,
                                          centerPos,
-                                         seed));
+                                         seed,
+                                         massDist));
         break;
     }
 }
@@ -93,12 +107,12 @@ void SimulationBase::initBodies(BodyDistribution dist, unsigned int seed)
 void SimulationBase::distributeWithFunction(InitFunction initFunc)
 {
     // Call the provided initialization function
-    initFunc(h_bodies, nBodies, Vector(CENTERX, CENTERY, CENTERZ), randomSeed);
+    initFunc(h_bodies, nBodies, Vector(CENTERX, CENTERY, CENTERZ), randomSeed, massDistribution);
 }
 
 void SimulationBase::setup()
 {
-    initBodies(distribution, randomSeed);
+    initBodies(distribution, randomSeed, massDistribution);
     copyBodiesToDevice();
     isInitialized = true;
 }
@@ -114,14 +128,27 @@ void SimulationBase::copyBodiesFromDevice()
     CHECK_CUDA_ERROR(cudaMemcpy(h_bodies, d_bodies, nBodies * sizeof(Body), cudaMemcpyDeviceToHost));
 }
 
-void SimulationBase::initSolarSystem(Body *bodies, int numBodies, Vector centerPos, unsigned int seed)
+void SimulationBase::initSolarSystem(Body *bodies, int numBodies, Vector centerPos, unsigned int seed, MassDistribution massDist)
 {
     // Seed random number generator
     std::mt19937 rng(seed);
     std::uniform_real_distribution<double> distUni(0.0, 1.0);
+    std::normal_distribution<double> distNorm(1.0, 0.2); // Mean 1.0, std dev 0.2 for normal distribution
 
     double maxDistance = MAX_DIST;
     double minDistance = MIN_DIST * 1.2;
+
+    // Default base mass to use for uniform and normal distributions
+    double baseMass = EARTH_MASS * 10.0;
+
+    // For uniform distribution, determine if all masses should be equal
+    bool allEqual = false;
+    if (massDist == MassDistribution::UNIFORM)
+    {
+        // You can add a parameter or use a constant to determine this
+        // For now, let's use a fixed value:
+        allEqual = true; // Set to true for all equal masses, false for uniform distribution
+    }
 
     // Número de planetas grandes, medianos y pequeños para una distribución más equilibrada
     int largeCount = numBodies / 20; // 5% planetas grandes
@@ -163,26 +190,40 @@ void SimulationBase::initSolarSystem(Body *bodies, int numBodies, Vector centerP
         // Setup body properties
         bodies[i].isDynamic = true;
 
-        // Adjust mass based on body type
+        // Set mass based on distribution type
+        switch (massDist)
+        {
+        case MassDistribution::NORMAL:
+            // Normal distribution around baseMass
+            bodies[i].mass = baseMass * std::max(0.1, distNorm(rng));
+            break;
+
+        case MassDistribution::UNIFORM:
+        default:
+            if (allEqual)
+            {
+                // All bodies have the same mass
+                bodies[i].mass = baseMass;
+            }
+            else
+            {
+                // Uniform distribution between 0.1 and 2.1 times baseMass
+                bodies[i].mass = baseMass * (0.1 + 2.0 * distUni(rng));
+            }
+            break;
+        }
+
+        // Set radius based on mass (keep the same regardless of mass distribution)
         if (i <= largeCount)
         {
-            // Planetas grandes (tipo Júpiter/Saturno)
-            double massFactor = 50.0 + (distUni(rng)) * 250.0;
-            bodies[i].mass = EARTH_MASS * massFactor;
             bodies[i].radius = EARTH_DIA * 5.0;
         }
         else if (i <= (largeCount + mediumCount))
         {
-            // Planetas medianos (tipo Tierra/Neptuno)
-            double massFactor = 5.0 + (distUni(rng)) * 15.0;
-            bodies[i].mass = EARTH_MASS;
             bodies[i].radius = EARTH_DIA * 2.0;
         }
         else
         {
-            // Pequeños cuerpos (menos dominantes visualmente)
-            double massFactor = 0.1 + (distUni(rng)) * 1.0;
-            bodies[i].mass = EARTH_MASS * massFactor;
             bodies[i].radius = EARTH_DIA * 0.5;
         }
 
@@ -214,12 +255,13 @@ void SimulationBase::initSolarSystem(Body *bodies, int numBodies, Vector centerP
     }
 }
 
-void SimulationBase::initGalaxy(Body *bodies, int numBodies, Vector centerPos, unsigned int seed)
+void SimulationBase::initGalaxy(Body *bodies, int numBodies, Vector centerPos, unsigned int seed, MassDistribution massDist)
 {
     // Configuración para una distribución de galaxia espiral
     std::mt19937 rng(seed);
     std::uniform_real_distribution<double> distUni(0.0, 1.0);
     std::normal_distribution<double> distNorm(0.0, 1.0);
+    std::normal_distribution<double> massNorm(1.0, 0.2); // For normal mass distribution
 
     // Parámetros de la galaxia
     const double coreRadius = MAX_DIST * 0.1;     // Radio del núcleo central
@@ -228,9 +270,21 @@ void SimulationBase::initGalaxy(Body *bodies, int numBodies, Vector centerPos, u
     const double spiralTightness = 0.5;           // Qué tan apretados son los brazos espirales
     const int numSpiralArms = 2;                  // Número de brazos espirales
 
+    // Base mass for uniform/normal distributions
+    double baseMass = SUN_MASS;
+
+    // For uniform distribution, determine if all masses should be equal
+    bool allEqual = false;
+    if (massDist == MassDistribution::UNIFORM)
+    {
+        allEqual = true; // Set to true for all equal, false for uniform distribution
+    }
+
     // Agujero negro central
     bodies[0].isDynamic = false;
-    bodies[0].mass = SUN_MASS * 10000; // Agujero negro supermasivo
+
+    // Always keep the central black hole massive regardless of distribution
+    bodies[0].mass = SUN_MASS * 10000;
     bodies[0].radius = SUN_DIA * 2;
     bodies[0].position = centerPos;
     bodies[0].velocity = Vector(0.0, 0.0, 0.0);
@@ -238,7 +292,7 @@ void SimulationBase::initGalaxy(Body *bodies, int numBodies, Vector centerPos, u
 
     // Estrellas masivas cerca del núcleo (5% del total)
     int coreBodies = numBodies * 0.05;
-    for (int i = 0; i <= coreBodies; i++)
+    for (int i = 1; i <= coreBodies; i++) // Start from 1 as we already set body 0
     {
         // Distribución radial del núcleo (concentración central)
         double r = coreRadius * pow(distUni(rng), 0.5);
@@ -252,7 +306,30 @@ void SimulationBase::initGalaxy(Body *bodies, int numBodies, Vector centerPos, u
 
         // Propiedades de los cuerpos en el núcleo (estrellas masivas y calientes)
         bodies[i].isDynamic = true;
-        bodies[i].mass = SUN_MASS * (1.0 + 5.0 * distUni(rng)); // Estrellas de 1-6 masas solares
+
+        // Set mass based on distribution type
+        switch (massDist)
+        {
+        case MassDistribution::NORMAL:
+            // Normal distribution around baseMass
+            bodies[i].mass = baseMass * 3.0 * std::max(0.5, massNorm(rng)); // Higher mass for core stars
+            break;
+
+        case MassDistribution::UNIFORM:
+        default:
+            if (allEqual)
+            {
+                // All bodies have the same mass
+                bodies[i].mass = baseMass * 3.0; // Higher base mass for core stars
+            }
+            else
+            {
+                // Original mass distribution for galaxy
+                bodies[i].mass = SUN_MASS * (1.0 + 5.0 * distUni(rng)); // Estrellas de 1-6 masas solares
+            }
+            break;
+        }
+
         bodies[i].radius = SUN_DIA * (0.5 + 0.5 * distUni(rng));
         bodies[i].position = Vector(x, y, z);
 
@@ -319,17 +396,45 @@ void SimulationBase::initGalaxy(Body *bodies, int numBodies, Vector centerPos, u
         // Propiedades según distancia al centro
         bodies[i].isDynamic = true;
 
-        // Masa y tamaño según posición
+        // Set mass based on distribution type
+        switch (massDist)
+        {
+        case MassDistribution::NORMAL:
+            // Normal distribution around baseMass
+            bodies[i].mass = baseMass * std::max(0.1, massNorm(rng));
+            break;
+
+        case MassDistribution::UNIFORM:
+        default:
+            if (allEqual)
+            {
+                // All bodies have the same mass
+                bodies[i].mass = baseMass;
+            }
+            else
+            {
+                // Original mass distribution for disk stars
+                if (r < diskRadius * 0.3)
+                {
+                    // Estrellas más masivas en las regiones interiores de los brazos
+                    bodies[i].mass = SUN_MASS * (0.5 + distUni(rng) * 2.0);
+                }
+                else
+                {
+                    // Estrellas de masa media y baja en las regiones exteriores
+                    bodies[i].mass = SUN_MASS * (0.1 + distUni(rng) * 0.9);
+                }
+            }
+            break;
+        }
+
+        // Size based on position as in original
         if (r < diskRadius * 0.3)
         {
-            // Estrellas más masivas en las regiones interiores de los brazos
-            bodies[i].mass = SUN_MASS * (0.5 + distUni(rng) * 2.0);
             bodies[i].radius = SUN_DIA * (0.5 + 0.5 * distUni(rng));
         }
         else
         {
-            // Estrellas de masa media y baja en las regiones exteriores
-            bodies[i].mass = SUN_MASS * (0.1 + distUni(rng) * 0.9);
             bodies[i].radius = SUN_DIA * (0.2 + 0.3 * distUni(rng));
         }
 
@@ -347,18 +452,29 @@ void SimulationBase::initGalaxy(Body *bodies, int numBodies, Vector centerPos, u
     }
 }
 
-void SimulationBase::initBinarySystem(Body *bodies, int numBodies, Vector centerPos, unsigned int seed)
+void SimulationBase::initBinarySystem(Body *bodies, int numBodies, Vector centerPos, unsigned int seed, MassDistribution massDist)
 {
     // Configuración para un sistema binario con planetas orbitando
     std::mt19937 rng(seed);
     std::uniform_real_distribution<double> distUni(0.0, 1.0);
     std::normal_distribution<double> distNorm(0.0, 1.0);
+    std::normal_distribution<double> massNorm(1.0, 0.2); // For normal mass distribution
 
     // Parámetros del sistema binario
     const double starSeparation = MAX_DIST * 0.1; // Separación entre las estrellas
     const double orbitRadius1 = MAX_DIST * 0.3;   // Radio orbital máximo alrededor de estrella 1
     const double orbitRadius2 = MAX_DIST * 0.3;   // Radio orbital máximo alrededor de estrella 2
     const double systemRadius = MAX_DIST;         // Radio total del sistema
+
+    // Base mass for uniform/normal distributions
+    double baseMass = EARTH_MASS * 5.0;
+
+    // For uniform distribution, determine if all masses should be equal
+    bool allEqual = false;
+    if (massDist == MassDistribution::UNIFORM)
+    {
+        allEqual = true; // Set to true for all equal, false for uniform distribution
+    }
 
     // Calcular las posiciones de las dos estrellas principales
     Vector star1Pos = Vector(centerPos.x - starSeparation / 2, centerPos.y, centerPos.z);
@@ -367,7 +483,7 @@ void SimulationBase::initBinarySystem(Body *bodies, int numBodies, Vector center
     // Velocidad orbital de las estrellas entre sí
     double binaryOrbitalSpeed = sqrt(GRAVITY * SUN_MASS / starSeparation);
 
-    // Estrella 1 (más masiva)
+    // Estrella 1 (más masiva) - always keep stars with significant mass
     bodies[0].isDynamic = true;
     bodies[0].mass = SUN_MASS * 1.5;
     bodies[0].radius = SUN_DIA * 1.2;
@@ -375,7 +491,7 @@ void SimulationBase::initBinarySystem(Body *bodies, int numBodies, Vector center
     bodies[0].velocity = Vector(0, binaryOrbitalSpeed * 0.4, 0);
     bodies[0].acceleration = Vector(0.0, 0.0, 0.0);
 
-    // Estrella 2
+    // Estrella 2 - always keep stars with significant mass
     bodies[1].isDynamic = true;
     bodies[1].mass = SUN_MASS;
     bodies[1].radius = SUN_DIA;
@@ -403,24 +519,56 @@ void SimulationBase::initBinarySystem(Body *bodies, int numBodies, Vector center
 
         bodies[i].isDynamic = true;
 
-        // Masa basada en la distancia (planetas más pequeños más lejos)
+        // Set mass based on distribution type
+        switch (massDist)
+        {
+        case MassDistribution::NORMAL:
+            // Normal distribution around baseMass
+            bodies[i].mass = baseMass * std::max(0.1, massNorm(rng));
+            break;
+
+        case MassDistribution::UNIFORM:
+        default:
+            if (allEqual)
+            {
+                // All bodies have the same mass
+                bodies[i].mass = baseMass;
+            }
+            else
+            {
+                // Original mass distribution based on distance
+                double normalizedDist = r / orbitRadius1;
+                if (normalizedDist < 0.3)
+                {
+                    // Planetas rocosos internos
+                    bodies[i].mass = EARTH_MASS * (0.2 + distUni(rng) * 2.0);
+                }
+                else if (normalizedDist < 0.7)
+                {
+                    // Planetas gaseosos medianos
+                    bodies[i].mass = EARTH_MASS * (5.0 + distUni(rng) * 20.0);
+                }
+                else
+                {
+                    // Planetas helados/enanos lejanos
+                    bodies[i].mass = EARTH_MASS * (0.05 + distUni(rng) * 0.5);
+                }
+            }
+            break;
+        }
+
+        // Set radius based on position as in original
         double normalizedDist = r / orbitRadius1;
         if (normalizedDist < 0.3)
         {
-            // Planetas rocosos internos
-            bodies[i].mass = EARTH_MASS * (0.2 + distUni(rng) * 2.0);
             bodies[i].radius = EARTH_DIA * (0.4 + 0.6 * distUni(rng));
         }
         else if (normalizedDist < 0.7)
         {
-            // Planetas gaseosos medianos
-            bodies[i].mass = EARTH_MASS * (5.0 + distUni(rng) * 20.0);
             bodies[i].radius = EARTH_DIA * (2.0 + 3.0 * distUni(rng));
         }
         else
         {
-            // Planetas helados/enanos lejanos
-            bodies[i].mass = EARTH_MASS * (0.05 + distUni(rng) * 0.5);
             bodies[i].radius = EARTH_DIA * (0.2 + 0.3 * distUni(rng));
         }
 
@@ -469,21 +617,53 @@ void SimulationBase::initBinarySystem(Body *bodies, int numBodies, Vector center
 
         bodies[i].isDynamic = true;
 
-        // Masa basada en la distancia
+        // Set mass based on distribution type
+        switch (massDist)
+        {
+        case MassDistribution::NORMAL:
+            // Normal distribution around baseMass
+            bodies[i].mass = baseMass * std::max(0.1, massNorm(rng));
+            break;
+
+        case MassDistribution::UNIFORM:
+        default:
+            if (allEqual)
+            {
+                // All bodies have the same mass
+                bodies[i].mass = baseMass;
+            }
+            else
+            {
+                // Original mass distribution based on distance
+                double normalizedDist = r / orbitRadius2;
+                if (normalizedDist < 0.3)
+                {
+                    bodies[i].mass = EARTH_MASS * (0.1 + distUni(rng) * 1.5);
+                }
+                else if (normalizedDist < 0.7)
+                {
+                    bodies[i].mass = EARTH_MASS * (3.0 + distUni(rng) * 15.0);
+                }
+                else
+                {
+                    bodies[i].mass = EARTH_MASS * (0.05 + distUni(rng) * 0.3);
+                }
+            }
+            break;
+        }
+
+        // Set radius based on position as in original
         double normalizedDist = r / orbitRadius2;
         if (normalizedDist < 0.3)
         {
-            bodies[i].mass = EARTH_MASS * (0.1 + distUni(rng) * 1.5);
             bodies[i].radius = EARTH_DIA * (0.3 + 0.5 * distUni(rng));
         }
         else if (normalizedDist < 0.7)
         {
-            bodies[i].mass = EARTH_MASS * (3.0 + distUni(rng) * 15.0);
             bodies[i].radius = EARTH_DIA * (1.5 + 2.5 * distUni(rng));
         }
         else
         {
-            bodies[i].mass = EARTH_MASS * (0.05 + distUni(rng) * 0.3);
             bodies[i].radius = EARTH_DIA * (0.1 + 0.2 * distUni(rng));
         }
 
@@ -529,10 +709,31 @@ void SimulationBase::initBinarySystem(Body *bodies, int numBodies, Vector center
 
         bodies[i].isDynamic = true;
 
-        // Objetos más pequeños en el exterior
-        bodies[i].mass = EARTH_MASS * (0.001 + distUni(rng) * 0.1);
-        bodies[i].radius = EARTH_DIA * (0.05 + 0.15 * distUni(rng));
+        // Set mass based on distribution type
+        switch (massDist)
+        {
+        case MassDistribution::NORMAL:
+            // Normal distribution around baseMass (lower mass for outer system objects)
+            bodies[i].mass = baseMass * 0.2 * std::max(0.01, massNorm(rng));
+            break;
 
+        case MassDistribution::UNIFORM:
+        default:
+            if (allEqual)
+            {
+                // All bodies have the same mass (lower mass for outer system objects)
+                bodies[i].mass = baseMass * 0.2;
+            }
+            else
+            {
+                // Original mass distribution
+                bodies[i].mass = EARTH_MASS * (0.001 + distUni(rng) * 0.1);
+            }
+            break;
+        }
+
+        // Keep original radius
+        bodies[i].radius = EARTH_DIA * (0.05 + 0.15 * distUni(rng));
         bodies[i].position = Vector(centerPos.x + x, centerPos.y + y, centerPos.z + z);
 
         // Masa total del sistema
@@ -558,25 +759,36 @@ void SimulationBase::initBinarySystem(Body *bodies, int numBodies, Vector center
     }
 }
 
-void SimulationBase::initUniformSphere(Body *bodies, int numBodies, Vector centerPos, unsigned int seed)
+void SimulationBase::initUniformSphere(Body *bodies, int numBodies, Vector centerPos, unsigned int seed, MassDistribution massDist)
 {
     // Distribución uniforme en una esfera
     std::mt19937 rng(seed);
     std::uniform_real_distribution<double> distUni(0.0, 1.0);
     std::normal_distribution<double> distNorm(0.0, 1.0);
+    std::normal_distribution<double> massNorm(1.0, 0.2); // For normal mass distribution
 
     double maxRadius = MAX_DIST * 0.9;
 
+    // Base mass for uniform/normal distributions
+    double baseMass = EARTH_MASS * 5.0;
+
+    // For uniform distribution, determine if all masses should be equal
+    bool allEqual = false;
+    if (massDist == MassDistribution::UNIFORM)
+    {
+        allEqual = true; // Set to true for all equal, false for uniform distribution
+    }
+
     // Configurar un objeto masivo en el centro
     bodies[0].isDynamic = true;
-    bodies[0].mass = SUN_MASS * 10;
+    bodies[0].mass = SUN_MASS * 10; // Keep central mass large regardless of distribution
     bodies[0].radius = SUN_DIA;
     bodies[0].position = centerPos;
     bodies[0].velocity = Vector(0.0, 0.0, 0.0);
     bodies[0].acceleration = Vector(0.0, 0.0, 0.0);
 
     // Distribuir cuerpos uniformemente en la esfera
-    for (int i = 0; i < numBodies; i++)
+    for (int i = 1; i < numBodies; i++)
     {
         // Distribución uniforme en una esfera
         // Usamos el método de rechazo para generar puntos uniformes en una esfera
@@ -594,7 +806,31 @@ void SimulationBase::initUniformSphere(Body *bodies, int numBodies, Vector cente
 
         // Propiedades del cuerpo
         bodies[i].isDynamic = true;
-        bodies[i].mass = EARTH_MASS * (0.1 + distUni(rng) * 2.0);
+
+        // Set mass based on distribution type
+        switch (massDist)
+        {
+        case MassDistribution::NORMAL:
+            // Normal distribution around baseMass
+            bodies[i].mass = baseMass * std::max(0.1, massNorm(rng));
+            break;
+
+        case MassDistribution::UNIFORM:
+        default:
+            if (allEqual)
+            {
+                // All bodies have the same mass
+                bodies[i].mass = baseMass;
+            }
+            else
+            {
+                // Original mass distribution
+                bodies[i].mass = EARTH_MASS * (0.1 + distUni(rng) * 2.0);
+            }
+            break;
+        }
+
+        // Keep original radius
         bodies[i].radius = EARTH_DIA * (0.2 + 0.8 * distUni(rng));
 
         // Posición absoluta
@@ -611,14 +847,25 @@ void SimulationBase::initUniformSphere(Body *bodies, int numBodies, Vector cente
     }
 }
 
-void SimulationBase::initRandomClusters(Body *bodies, int numBodies, Vector centerPos, unsigned int seed)
+void SimulationBase::initRandomClusters(Body *bodies, int numBodies, Vector centerPos, unsigned int seed, MassDistribution massDist)
 {
     // Distribución con múltiples clústeres aleatorios
     std::mt19937 rng(seed);
     std::uniform_real_distribution<double> distUni(0.0, 1.0);
     std::normal_distribution<double> distNorm(0.0, 1.0);
+    std::normal_distribution<double> massNorm(1.0, 0.2); // For normal mass distribution
 
     double domainRadius = MAX_DIST * 0.9;
+
+    // Base mass for uniform/normal distributions
+    double baseMass = EARTH_MASS * 5.0;
+
+    // For uniform distribution, determine if all masses should be equal
+    bool allEqual = false;
+    if (massDist == MassDistribution::UNIFORM)
+    {
+        allEqual = true; // Set to true for all equal, false for uniform distribution
+    }
 
     // Parámetros de los clústeres
     const int numClusters = 5 + static_cast<int>(distUni(rng) * 5); // Entre 5 y 10 clústeres
@@ -626,7 +873,7 @@ void SimulationBase::initRandomClusters(Body *bodies, int numBodies, Vector cent
     std::vector<double> clusterRadii(numClusters);
     std::vector<double> clusterMass(numClusters);
 
-    // Objeto masivo en el centro global
+    // Objeto masivo en el centro global - keep central mass large regardless of distribution
     bodies[0].isDynamic = false;
     bodies[0].mass = SUN_MASS * 50;
     bodies[0].radius = SUN_DIA * 2;
@@ -652,10 +899,26 @@ void SimulationBase::initRandomClusters(Body *bodies, int numBodies, Vector cent
         clusterRadii[c] = MAX_DIST * (0.05 + 0.15 * distUni(rng)) * (0.5 + 0.5 * r / domainRadius);
 
         // Masa del clúster
-        clusterMass[c] = SUN_MASS * (1.0 + 9.0 * distUni(rng));
+        switch (massDist)
+        {
+        case MassDistribution::NORMAL:
+            clusterMass[c] = SUN_MASS * 5.0 * std::max(0.5, massNorm(rng));
+            break;
+
+        case MassDistribution::UNIFORM:
+            if (allEqual)
+            {
+                clusterMass[c] = SUN_MASS * 5.0;
+            }
+            else
+            {
+                clusterMass[c] = SUN_MASS * (1.0 + 9.0 * distUni(rng));
+            }
+            break;
+        }
     }
 
-    // Centros de los clústeres (objetos masivos)
+    // Centros de los clústeres (objetos masivos) - always keep cluster centers massive
     for (int c = 0; c < numClusters && c + 1 < numBodies; c++)
     {
         bodies[c + 1].isDynamic = true;
@@ -705,7 +968,30 @@ void SimulationBase::initRandomClusters(Body *bodies, int numBodies, Vector cent
             double distToCenter = sqrt(x * x + y * y + z * z);
             double distFactor = exp(-distToCenter / (clusterRadii[c] * 0.5));
 
-            bodies[currentIdx].mass = EARTH_MASS * (0.1 + 2.0 * distUni(rng) * distFactor);
+            // Set mass based on distribution type
+            switch (massDist)
+            {
+            case MassDistribution::NORMAL:
+                // Normal distribution around baseMass adjusted by distance factor
+                bodies[currentIdx].mass = baseMass * distFactor * std::max(0.1, massNorm(rng));
+                break;
+
+            case MassDistribution::UNIFORM:
+            default:
+                if (allEqual)
+                {
+                    // All bodies have the same mass
+                    bodies[currentIdx].mass = baseMass;
+                }
+                else
+                {
+                    // Original mass distribution
+                    bodies[currentIdx].mass = EARTH_MASS * (0.1 + 2.0 * distUni(rng) * distFactor);
+                }
+                break;
+            }
+
+            // Keep original radius
             bodies[currentIdx].radius = EARTH_DIA * (0.2 + 0.8 * distUni(rng) * distFactor);
 
             // Posición absoluta
@@ -754,7 +1040,31 @@ void SimulationBase::initRandomClusters(Body *bodies, int numBodies, Vector cent
         double z = r * cos(phi);
 
         bodies[currentIdx].isDynamic = true;
-        bodies[currentIdx].mass = EARTH_MASS * (0.01 + 0.1 * distUni(rng));
+
+        // Set mass based on distribution type
+        switch (massDist)
+        {
+        case MassDistribution::NORMAL:
+            // Normal distribution around a lower baseMass for outer bodies
+            bodies[currentIdx].mass = baseMass * 0.1 * std::max(0.1, massNorm(rng));
+            break;
+
+        case MassDistribution::UNIFORM:
+        default:
+            if (allEqual)
+            {
+                // All bodies have the same mass, but lower for outer bodies
+                bodies[currentIdx].mass = baseMass * 0.1;
+            }
+            else
+            {
+                // Original mass distribution
+                bodies[currentIdx].mass = EARTH_MASS * (0.01 + 0.1 * distUni(rng));
+            }
+            break;
+        }
+
+        // Keep original radius
         bodies[currentIdx].radius = EARTH_DIA * (0.1 + 0.2 * distUni(rng));
         bodies[currentIdx].position = Vector(centerPos.x + x, centerPos.y + y, centerPos.z + z);
 
@@ -777,5 +1087,131 @@ void SimulationBase::initRandomClusters(Body *bodies, int numBodies, Vector cent
         bodies[currentIdx].acceleration = Vector(0.0, 0.0, 0.0);
 
         currentIdx++;
+    }
+}
+
+// New initialization function for completely random bodies
+void SimulationBase::initRandomBodies(Body *bodies, int numBodies, Vector centerPos, unsigned int seed, MassDistribution massDist)
+{
+    // Distribución completamente aleatoria sin estructura específica
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<double> distUni(0.0, 1.0);
+    std::normal_distribution<double> distNorm(0.0, 1.0);
+    std::normal_distribution<double> massNorm(1.0, 0.2); // For normal mass distribution
+
+    double maxRadius = MAX_DIST * 0.9;
+
+    // Base mass for uniform/normal distributions
+    double baseMass = EARTH_MASS * 10.0;
+
+    // Flag for uniform distribution with equal masses
+    bool allEqual = false;
+    if (massDist == MassDistribution::UNIFORM)
+    {
+        allEqual = true; // Set to true for all equal, false for uniform distribution
+    }
+
+    // Distribute bodies completely randomly throughout the domain
+    for (int i = 0; i < numBodies; i++)
+    {
+        // Generate random position in cubic domain, then reject if outside sphere
+        Vector position;
+        double distanceFromCenter;
+
+        do
+        {
+            position.x = (2.0 * distUni(rng) - 1.0) * maxRadius;
+            position.y = (2.0 * distUni(rng) - 1.0) * maxRadius;
+            position.z = (2.0 * distUni(rng) - 1.0) * maxRadius;
+
+            distanceFromCenter = sqrt(
+                position.x * position.x +
+                position.y * position.y +
+                position.z * position.z);
+        } while (distanceFromCenter > maxRadius);
+
+        bodies[i].isDynamic = true;
+
+        // Set mass based on distribution type
+        switch (massDist)
+        {
+        case MassDistribution::NORMAL:
+            // Normal distribution around baseMass
+            bodies[i].mass = baseMass * std::max(0.1, massNorm(rng));
+            break;
+
+        case MassDistribution::UNIFORM:
+        default:
+            if (allEqual)
+            {
+                // All bodies have exactly the same mass
+                bodies[i].mass = baseMass;
+            }
+            else
+            {
+                // Uniform random distribution of masses
+                bodies[i].mass = baseMass * (0.1 + 1.9 * distUni(rng));
+            }
+            break;
+        }
+
+        // Random radius proportional to mass
+        double massFactor = bodies[i].mass / baseMass;
+        bodies[i].radius = EARTH_DIA * (0.5 + 1.5 * sqrt(massFactor)) * (0.8 + 0.4 * distUni(rng));
+
+        // Set position
+        bodies[i].position = Vector(
+            centerPos.x + position.x,
+            centerPos.y + position.y,
+            centerPos.z + position.z);
+
+        // Random velocity - different distributions for more interesting dynamics
+        double speedFactor = 5.0e3; // Base speed factor
+
+        if (distUni(rng) < 0.7)
+        {
+            // 70% of bodies have coherent orbits around center
+            Vector positionFromCenter = bodies[i].position - centerPos;
+            double distance = positionFromCenter.length();
+
+            // Orbital speed based on distance (bodies further out move slower)
+            double orbitalSpeed = speedFactor * (0.5 + 0.5 / sqrt(distance / 1.0e10));
+
+            // Generate perpendicular vector for orbital motion
+            Vector perpendicular;
+
+            // First try to use z-axis as reference
+            if (fabs(positionFromCenter.z) < fabs(positionFromCenter.x) &&
+                fabs(positionFromCenter.z) < fabs(positionFromCenter.y))
+            {
+                perpendicular = Vector(-positionFromCenter.y, positionFromCenter.x, 0);
+            }
+            else
+            {
+                // Otherwise use x-axis
+                perpendicular = Vector(0, -positionFromCenter.z, positionFromCenter.y);
+            }
+
+            // Normalize and apply speed
+            perpendicular = perpendicular.normalize() * orbitalSpeed;
+
+            // Add some random perturbation
+            perpendicular.x += distNorm(rng) * speedFactor * 0.1;
+            perpendicular.y += distNorm(rng) * speedFactor * 0.1;
+            perpendicular.z += distNorm(rng) * speedFactor * 0.1;
+
+            bodies[i].velocity = perpendicular;
+        }
+        else
+        {
+            // 30% of bodies have completely random velocities
+            bodies[i].velocity = Vector(
+                distNorm(rng) * speedFactor,
+                distNorm(rng) * speedFactor,
+                distNorm(rng) * speedFactor);
+        }
+
+        // Initial acceleration is zero
+        bodies[i].acceleration = Vector(0.0, 0.0, 0.0);
     }
 }

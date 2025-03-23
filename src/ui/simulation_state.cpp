@@ -4,14 +4,15 @@
 SimulationState::SimulationState() : running(true),
                                      restart(false),
                                      isPaused(false),
-                                     simulationMethod(SimulationMethod::GPU_BARNES_HUT), // Default to Barnes-Hut
-                                     useOpenMP(true),                                    // Enable OpenMP by default
-                                     openMPThreads(omp_get_max_threads()),               // Use all available cores by default
+                                     simulationMethod(SimulationMethod::GPU_BARNES_HUT),
+                                     useOpenMP(true),
+                                     openMPThreads(omp_get_max_threads()),
                                      useSFC(false),
                                      sfcOrderingMode(SFCOrderingMode::PARTICLES),
-                                     reorderFrequency(10),                 // Reorder every 10 iterations by default
-                                     sfcCurveType(sfc::CurveType::MORTON), // Default to Morton curve
-                                     bodyDistribution(BodyDistribution::SOLAR_SYSTEM),
+                                     reorderFrequency(10),
+                                     sfcCurveType(sfc::CurveType::MORTON),
+                                     bodyDistribution(BodyDistribution::RANDOM_BODIES),
+                                     massDistribution(MassDistribution::UNIFORM),
                                      randomSeed(static_cast<unsigned int>(time(nullptr))),
                                      seedWasChanged(false),
                                      numBodies(1024),
@@ -30,13 +31,10 @@ SimulationState::SimulationState() : running(true),
                                      octreeOpacity(0.5f),
                                      octreeColorByMass(true)
 {
-    // Initialize seed input buffer with current seed
     snprintf(seedInputBuffer, sizeof(seedInputBuffer), "%u", randomSeed.load());
 }
-
 SimulationState::~SimulationState()
 {
-    // Free shared bodies if allocated
     if (sharedBodies != nullptr)
     {
         delete[] sharedBodies;

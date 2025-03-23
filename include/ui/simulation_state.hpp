@@ -8,24 +8,28 @@
 #include "../common/types.cuh"
 #include "../sfc/sfc_framework.cuh"
 
-// Enum for SFC ordering mode
-enum class SFCOrderingMode
+enum class MassDistribution
 {
-    PARTICLES, // Order particles using SFC
-    OCTANTS    // Order octants using SFC
+    UNIFORM,
+    NORMAL
 };
 
-// Enum for initial body distribution
+enum class SFCOrderingMode
+{
+    PARTICLES,
+    OCTANTS
+};
+
 enum class BodyDistribution
 {
     SOLAR_SYSTEM,
     GALAXY,
     BINARY_SYSTEM,
     UNIFORM_SPHERE,
-    RANDOM_CLUSTERS
+    RANDOM_CLUSTERS,
+    RANDOM_BODIES
 };
 
-// Enum for simulation method
 enum class SimulationMethod
 {
     CPU_DIRECT_SUM,
@@ -37,7 +41,8 @@ enum class SimulationMethod
     CPU_BARNES_HUT,
     CPU_SFC_BARNES_HUT,
 
-    GPU_BARNES_HUT
+    GPU_BARNES_HUT,
+    GPU_SFC_BARNES_HUT
 };
 
 struct SimulationState
@@ -60,8 +65,9 @@ struct SimulationState
 
     // Distribution parameters
     std::atomic<BodyDistribution> bodyDistribution;
-    std::atomic<unsigned int> randomSeed; // Seed for random number generation
-    bool seedWasChanged;                  // Flag to indicate seed was manually set
+    std::atomic<MassDistribution> massDistribution; // New mass distribution option
+    std::atomic<unsigned int> randomSeed;           // Seed for random number generation
+    bool seedWasChanged;                            // Flag to indicate seed was manually set
 
     // Simulation parameters
     std::atomic<int> numBodies;
@@ -85,12 +91,12 @@ struct SimulationState
     int selectedCommandIndex;
     int selectedParticleOption;
     char seedInputBuffer[16]; // Buffer for seed input text
-    
+
     // Octree visualization parameters
-    bool showOctree;                 // Toggle para mostrar/ocultar octree
-    int octreeMaxDepth;              // Profundidad máxima a visualizar
-    float octreeOpacity;             // Opacidad de las líneas del octree
-    bool octreeColorByMass;          // Colorear nodos según masa
+    bool showOctree;        // Toggle para mostrar/ocultar octree
+    int octreeMaxDepth;     // Profundidad máxima a visualizar
+    float octreeOpacity;    // Opacidad de las líneas del octree
+    bool octreeColorByMass; // Colorear nodos según masa
 
     // Constructor with default initialization
     SimulationState();

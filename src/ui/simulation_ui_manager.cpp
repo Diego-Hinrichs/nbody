@@ -53,7 +53,7 @@ void SimulationUIManager::renderUI(GLFWwindow *window)
             renderAdvancedOptions();
             ImGui::EndTabItem();
         }
-        
+
         if (ImGui::BeginTabItem("Octree View"))
         {
             renderOctreeVisualizationOptions();
@@ -142,7 +142,8 @@ void SimulationUIManager::renderBodyGenerationOptions()
         "Galaxy",
         "Binary System",
         "Uniform Sphere",
-        "Random Clusters"};
+        "Random Clusters",
+        "Random Bodies"};
 
     int currentDist = static_cast<int>(simulationState_.bodyDistribution.load());
     if (ImGui::Combo("Distribution Type", &currentDist, distributionTypes, IM_ARRAYSIZE(distributionTypes)))
@@ -151,6 +152,28 @@ void SimulationUIManager::renderBodyGenerationOptions()
         simulationState_.restart.store(true);
     }
 
+    // Mass distribution selection
+    static const char *massDistributionTypes[] = {
+        "Uniform (All Equal)",
+        "Normal Distribution"};
+
+    int currentMassDist = static_cast<int>(simulationState_.massDistribution.load());
+    if (ImGui::Combo("Mass Distribution", &currentMassDist, massDistributionTypes, IM_ARRAYSIZE(massDistributionTypes)))
+    {
+        simulationState_.massDistribution.store(static_cast<MassDistribution>(currentMassDist));
+        simulationState_.restart.store(true);
+    }
+
+    // Show description based on selected mass distribution
+    switch (static_cast<MassDistribution>(currentMassDist)) {
+        case MassDistribution::UNIFORM:
+            ImGui::TextWrapped("Uniform: All bodies have exactly the same mass. Good for studying pure positional effects.");
+            break;
+        case MassDistribution::NORMAL:
+            ImGui::TextWrapped("Normal: Masses follow a normal (Gaussian) distribution. Provides moderate variation.");
+            break;
+    }
+    
     ImGui::Separator();
 
     // Random seed controls
@@ -554,55 +577,64 @@ void SimulationUIManager::renderOctreeVisualizationOptions()
     bool usesOctree = (currentMethod == SimulationMethod::CPU_BARNES_HUT ||
                        currentMethod == SimulationMethod::CPU_SFC_BARNES_HUT ||
                        currentMethod == SimulationMethod::GPU_BARNES_HUT);
-    
-    if (!usesOctree) {
-        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f), 
-                         "Octree visualization is only available for Barnes-Hut methods");
+
+    if (!usesOctree)
+    {
+        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f),
+                           "Octree visualization is only available for Barnes-Hut methods");
         return;
     }
-    
+
     ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Octree Visualization");
-    
+
     // Toggle para mostrar/ocultar octree
     bool showOctree = simulationState_.showOctree;
-    if (ImGui::Checkbox("Show Octree Structure", &showOctree)) {
+    if (ImGui::Checkbox("Show Octree Structure", &showOctree))
+    {
         simulationState_.showOctree = showOctree;
     }
-    
+
     ImGui::TextWrapped("Toggle octree visualization without affecting particle display");
-    
-    if (showOctree) {
+
+    if (showOctree)
+    {
         // Control de profundidad máxima
         int maxDepth = simulationState_.octreeMaxDepth;
-        if (ImGui::SliderInt("Max Depth", &maxDepth, 1, 8)) {
+        if (ImGui::SliderInt("Max Depth", &maxDepth, 1, 8))
+        {
             simulationState_.octreeMaxDepth = maxDepth;
         }
         ImGui::TextWrapped("Lower depths show less detail but render faster");
-        
+
         // Control de opacidad
         float opacity = simulationState_.octreeOpacity;
-        if (ImGui::SliderFloat("Opacity", &opacity, 0.1f, 1.0f, "%.2f")) {
+        if (ImGui::SliderFloat("Opacity", &opacity, 0.1f, 1.0f, "%.2f"))
+        {
             simulationState_.octreeOpacity = opacity;
         }
         ImGui::TextWrapped("Adjust transparency of the octree lines");
-        
+
         // Toggle para colorear por masa
         bool colorByMass = simulationState_.octreeColorByMass;
-        if (ImGui::Checkbox("Color Nodes by Mass", &colorByMass)) {
+        if (ImGui::Checkbox("Color Nodes by Mass", &colorByMass))
+        {
             simulationState_.octreeColorByMass = colorByMass;
         }
-        
-        if (colorByMass) {
+
+        if (colorByMass)
+        {
             ImGui::TextWrapped("Red nodes contain more mass");
-        } else {
+        }
+        else
+        {
             ImGui::TextWrapped("Uniform color for all octree nodes");
         }
-        
+
         // Información sobre el octree
         ImGui::Separator();
         ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Octree Information");
         ImGui::Text("Bodies in simulation: %d", simulationState_.numBodies.load());
-        
+
         // Nota: Aquí se podría añadir información real sobre el octree si estuviera disponible
         int approxDepth = static_cast<int>(log2(simulationState_.numBodies.load() / 8) + 1);
         ImGui::Text("Approximate depth: ~%d", approxDepth);

@@ -10,13 +10,6 @@
 // Forward declaration for the CPU octree node
 struct CPUOctreeNode;
 
-/**
- * @brief CPU-based Barnes-Hut N-body simulation implementation
- *
- * This class implements the Barnes-Hut algorithm for N-body gravitational
- * interactions on the CPU, using an octree for space partitioning and optionally
- * using OpenMP for parallelization.
- */
 class CPUBarnesHut : public SimulationBase
 {
 private:
@@ -36,80 +29,28 @@ private:
     Vector minBound; // Minimum bounds of the domain
     Vector maxBound; // Maximum bounds of the domain
 
-    /**
-     * @brief Compute the bounding box for the entire simulation
-     */
     void computeBoundingBox();
-
-    /**
-     * @brief Build the octree for Barnes-Hut simulation
-     */
     void buildOctree();
-
-    /**
-     * @brief Compute the center of mass for a node and its children
-     * @param node The octree node
-     */
     void computeCenterOfMass(CPUOctreeNode *node);
-
-    /**
-     * @brief Compute forces between bodies using the Barnes-Hut approximation
-     */
     void computeForces();
-
-    /**
-     * @brief Compute force on a body from a node
-     * @param body The body to compute force for
-     * @param node The octree node
-     */
     void computeForceFromNode(Body &body, const CPUOctreeNode *node);
 
 public:
-    /**
-     * @brief Constructor
-     * @param numBodies Number of bodies in the simulation
-     * @param useParallelization Flag to enable/disable OpenMP
-     * @param threads Number of OpenMP threads (0 for auto-detect)
-     * @param dist Distribution type for initial body positions
-     * @param seed Random seed for reproducibility
-     * @param enableSFC Flag to enable/disable Space-Filling Curve ordering
-     * @param sfcOrderingMode Ordering mode for SFC (particles or octants)
-     * @param reorderFreq How often to reorder (in iterations)
-     */
-    CPUBarnesHut(int numBodies,
-                 bool useParallelization = true,
-                 int threads = 0,
-                 BodyDistribution dist = BodyDistribution::SOLAR_SYSTEM,
-                 unsigned int seed = static_cast<unsigned int>(time(nullptr)),
-                 bool enableSFC = false,
-                 SFCOrderingMode sfcOrderingMode = SFCOrderingMode::PARTICLES,
-                 int reorderFreq = 10);
+    CPUBarnesHut(
+        int numBodies,
+        bool useParallelization = true,
+        int threads = 0,
+        BodyDistribution dist = BodyDistribution::SOLAR_SYSTEM,
+        unsigned int seed = static_cast<unsigned int>(time(nullptr)),
+        MassDistribution massDist = MassDistribution::UNIFORM,
+        bool enableSFC = false,
+        SFCOrderingMode sfcOrderingMode = SFCOrderingMode::PARTICLES,
+        int reorderFreq = 10);
 
-    /**
-     * @brief Destructor
-     */
     virtual ~CPUBarnesHut();
-
-    /**
-     * @brief Update the simulation
-     *
-     * Performs one simulation step by computing forces and updating positions.
-     */
     virtual void update() override;
+    void enableOpenMP(bool enable) { useOpenMP = enable; }
 
-    /**
-     * @brief Enable or disable OpenMP parallelization
-     * @param enable Flag to enable/disable OpenMP parallelization
-     */
-    void enableOpenMP(bool enable)
-    {
-        useOpenMP = enable;
-    }
-
-    /**
-     * @brief Set the number of OpenMP threads
-     * @param threads Number of threads (0 for auto-detect)
-     */
     void setThreadCount(int threads)
     {
         if (threads <= 0)

@@ -11,6 +11,7 @@ std::unique_ptr<SimulationBase> SimulationFactory::createFromState(const Simulat
     int reorderFreq = state.reorderFrequency.load();
     sfc::CurveType curveType = state.sfcCurveType.load();
     BodyDistribution distribution = state.bodyDistribution.load();
+    MassDistribution massDistribution = state.massDistribution.load();
     unsigned int seed = state.randomSeed.load();
     bool useOpenMP = state.useOpenMP.load();
     int numThreads = state.openMPThreads.load();
@@ -24,10 +25,12 @@ std::unique_ptr<SimulationBase> SimulationFactory::createFromState(const Simulat
         reorderFreq,
         curveType,
         distribution,
+        massDistribution,
         seed,
         useOpenMP,
         numThreads);
 }
+
 std::unique_ptr<SimulationBase> SimulationFactory::createSimulation(
     SimulationMethod method,
     int numBodies,
@@ -36,6 +39,7 @@ std::unique_ptr<SimulationBase> SimulationFactory::createSimulation(
     int reorderFreq,
     sfc::CurveType curveType,
     BodyDistribution distribution,
+    MassDistribution massDistribution,
     unsigned int seed,
     bool useOpenMP,
     int numThreads)
@@ -63,28 +67,24 @@ std::unique_ptr<SimulationBase> SimulationFactory::createSimulation(
     case SimulationMethod::CPU_DIRECT_SUM:
         simulation = std::make_unique<CPUDirectSum>(
             numBodies,
-            useOpenMP,    // Use OpenMP
-            numThreads,   // Thread count
-            distribution, // Distribution type
-            seed          // Random seed
-        );
+            useOpenMP,
+            numThreads,
+            distribution,
+            seed,
+            massDistribution);
         break;
 
     case SimulationMethod::CPU_SFC_DIRECT_SUM:
     {
         auto sfcSim = std::make_unique<SFCCPUDirectSum>(
             numBodies,
-            useOpenMP,    // Use OpenMP
-            numThreads,   // Thread count
-            true,         // Enable SFC
-            reorderFreq,  // Reorder frequency
-            distribution, // Distribution type
-            seed          // Random seed
-        );
-
-        // Set curve type
-        // This would require adding a setCurveType method to SFCCPUDirectSum
-        // sfcSim->setCurveType(curveType);
+            useOpenMP,
+            numThreads,
+            true,
+            reorderFreq,
+            distribution,
+            seed,
+            massDistribution);
 
         simulation = std::move(sfcSim);
     }
@@ -93,22 +93,21 @@ std::unique_ptr<SimulationBase> SimulationFactory::createSimulation(
     case SimulationMethod::GPU_DIRECT_SUM:
         simulation = std::make_unique<GPUDirectSum>(
             numBodies,
-            distribution, // Distribution type
-            seed          // Random seed
-        );
+            distribution,
+            seed,
+            massDistribution);
         break;
 
     case SimulationMethod::GPU_SFC_DIRECT_SUM:
     {
         auto sfcSim = std::make_unique<SFCGPUDirectSum>(
             numBodies,
-            true,         // SFC is always enabled for this method
-            reorderFreq,  // Reorder frequency
-            distribution, // Distribution type
-            seed          // Random seed
-        );
+            true, // SFC is always enabled for this method
+            reorderFreq,
+            distribution,
+            seed,
+            massDistribution);
 
-        // Set curve type
         sfcSim->setCurveType(curveType);
 
         simulation = std::move(sfcSim);
@@ -118,29 +117,43 @@ std::unique_ptr<SimulationBase> SimulationFactory::createSimulation(
     case SimulationMethod::CPU_BARNES_HUT:
         simulation = std::make_unique<CPUBarnesHut>(
             numBodies,
-            useOpenMP,    // Use OpenMP
-            numThreads,   // Thread count
-            distribution, // Distribution type
-            seed          // Random seed
-        );
+            useOpenMP,
+            numThreads,
+            distribution,
+            seed,
+            massDistribution);
         break;
 
     case SimulationMethod::CPU_SFC_BARNES_HUT:
     {
         auto sfcSim = std::make_unique<CPUBarnesHut>(
             numBodies,
-            useOpenMP,    // Use OpenMP
-            numThreads,   // Thread count
-            distribution, // Distribution type
-            seed,         // Random seed
-            true,         // Enable SFC
+            useOpenMP,
+            numThreads,
+            distribution,
+            seed,
+            massDistribution,
+            true,
             orderingMode, // Ordering mode
-            reorderFreq   // Reorder frequency
-        );
+            reorderFreq);
+
+        simulation = std::move(sfcSim);
+    }
+    break;
+
+    case SimulationMethod::GPU_SFC_BARNES_HUT:
+    {
+        auto sfcSim = std::make_unique<SFCBarnesHut>(
+            numBodies,
+            true,
+            orderingMode,
+            reorderFreq,
+            distribution,
+            seed,
+            massDistribution);
 
         // Set curve type
-        // This would require adding a setCurveType method to CPUBarnesHut
-        // sfcSim->setCurveType(curveType);
+        sfcSim->setCurveType(curveType);
 
         simulation = std::move(sfcSim);
     }
@@ -151,10 +164,9 @@ std::unique_ptr<SimulationBase> SimulationFactory::createSimulation(
         // Use regular Barnes-Hut
         simulation = std::make_unique<BarnesHut>(
             numBodies,
-            distribution, // Distribution type
-            seed          // Random seed
-        );
-
+            distribution,
+            seed,
+            massDistribution);
         break;
     }
 

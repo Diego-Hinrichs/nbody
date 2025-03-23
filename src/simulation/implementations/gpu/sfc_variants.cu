@@ -118,9 +118,14 @@ __global__ void SFCDirectSumForceKernel(Body *bodies, int *orderedIndices, bool 
     }
 }
 
-SFCGPUDirectSum::SFCGPUDirectSum(int numBodies, bool useSpaceFillingCurve,
-                                 int initialReorderFreq, BodyDistribution dist, unsigned int seed)
-    : GPUDirectSum(numBodies, dist, seed),
+SFCGPUDirectSum::SFCGPUDirectSum(
+    int numBodies,
+    bool useSpaceFillingCurve,
+    int initialReorderFreq,
+    BodyDistribution dist,
+    unsigned int seed,
+    MassDistribution massDist)
+    : GPUDirectSum(numBodies, dist, seed, massDist),
       useSFC(useSpaceFillingCurve),
       sorter(nullptr),
       d_orderedIndices(nullptr),
@@ -276,4 +281,231 @@ void SFCGPUDirectSum::update()
 
     // Compute forces and update positions
     computeForces();
+}
+
+__global__ void ApplyBodyOrderingKernel(Body *bodies, Body *buffer, int *indices, int numBodies)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < numBodies)
+    {
+        buffer[i] = bodies[indices[i]];
+    }
+}
+
+__global__ void ApplyNodeOrderingKernel(Node *nodes, Node *buffer, int *indices, int numNodes)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < numNodes)
+    {
+        buffer[i] = nodes[indices[i]];
+    }
+}
+
+SFCBarnesHut::SFCBarnesHut(
+    int numBodies,
+    bool enableSFC,
+    SFCOrderingMode ordMode,
+    int reorderFreq,
+    BodyDistribution dist,
+    unsigned int seed,
+    MassDistribution massDist)
+    : BarnesHut(numBodies, dist, seed, massDist),
+      useSFC(enableSFC),
+      curveType(sfc::CurveType::MORTON),
+      orderingMode(ordMode),
+      bodySorter(nullptr),
+      octantSorter(nullptr),
+      d_orderedBodyIndices(nullptr),
+      d_orderedNodeIndices(nullptr),
+      reorderFrequency(reorderFreq),
+      iterationCounter(0)
+{
+    if (useSFC)
+    {
+        bodySorter = new sfc::BodySorter(numBodies, curveType);
+        octantSorter = new sfc::OctantSorter(MAX_NODES, curveType);
+    }
+
+    minBound = Vector(INFINITY, INFINITY, INFINITY);
+    maxBound = Vector(-INFINITY, -INFINITY, -INFINITY);
+
+    std::cout << "SFC Barnes-Hut Simulation created with " << numBodies << " bodies." << std::endl;
+    std::cout << "SFC Ordering: " << (useSFC ? "enabled" : "disabled");
+
+    if (useSFC)
+    {
+        std::cout << ", Mode: " << (orderingMode == SFCOrderingMode::PARTICLES ? "particles" : "octants");
+        std::cout << ", Curve: " << (curveType == sfc::CurveType::MORTON ? "Morton" : "Hilbert");
+        std::cout << ", Reorder Frequency: " << reorderFrequency;
+    }
+    std::cout << std::endl;
+}
+
+SFCBarnesHut::~SFCBarnesHut()
+{
+    if (bodySorter)
+    {
+        delete bodySorter;
+        bodySorter = nullptr;
+    }
+
+    if (octantSorter)
+    {
+        delete octantSorter;
+        octantSorter = nullptr;
+    }
+}
+
+void SFCBarnesHut::setCurveType(sfc::CurveType type)
+{
+    if (type != curveType)
+    {
+        curveType = type;
+
+        if (bodySorter)
+            bodySorter->setCurveType(type);
+
+        if (octantSorter)
+            octantSorter->setCurveType(type);
+
+        iterationCounter = reorderFrequency;
+    }
+}
+
+void SFCBarnesHut::updateBoundingBox()
+{
+    Body *tempBodies = new Body[nBodies];
+    CHECK_CUDA_ERROR(cudaMemcpy(tempBodies, d_bodies, nBodies * sizeof(Body), cudaMemcpyDeviceToHost));
+
+    minBound = Vector(INFINITY, INFINITY, INFINITY);
+    maxBound = Vector(-INFINITY, -INFINITY, -INFINITY);
+
+    for (int i = 0; i < nBodies; i++)
+    {
+        Vector pos = tempBodies[i].position;
+
+        minBound.x = std::min(minBound.x, pos.x);
+        minBound.y = std::min(minBound.y, pos.y);
+        minBound.z = std::min(minBound.z, pos.z);
+
+        maxBound.x = std::max(maxBound.x, pos.x);
+        maxBound.y = std::max(maxBound.y, pos.y);
+        maxBound.z = std::max(maxBound.z, pos.z);
+    }
+
+    double padding = std::max(1.0e10, (maxBound.x - minBound.x) * 0.01);
+    minBound.x -= padding;
+    minBound.y -= padding;
+    minBound.z -= padding;
+    maxBound.x += padding;
+    maxBound.y += padding;
+    maxBound.z += padding;
+
+    delete[] tempBodies;
+}
+
+void SFCBarnesHut::orderBodiesBySFC()
+{
+    if (!useSFC || !bodySorter)
+        return;
+
+    updateBoundingBox();
+
+    d_orderedBodyIndices = bodySorter->sortBodies(d_bodies, minBound, maxBound);
+
+    Body *d_tempBodies = nullptr;
+    CHECK_CUDA_ERROR(cudaMalloc(&d_tempBodies, nBodies * sizeof(Body)));
+
+    int blockSize = 256;
+    int gridSize = (nBodies + blockSize - 1) / blockSize;
+
+    ApplyBodyOrderingKernel<<<gridSize, blockSize>>>(d_bodies, d_tempBodies, d_orderedBodyIndices, nBodies);
+    CHECK_LAST_CUDA_ERROR();
+
+    CHECK_CUDA_ERROR(cudaMemcpy(d_bodies, d_tempBodies, nBodies * sizeof(Body), cudaMemcpyDeviceToDevice));
+
+    CHECK_CUDA_ERROR(cudaFree(d_tempBodies));
+}
+
+void SFCBarnesHut::orderOctantsBySFC()
+{
+    if (!useSFC || !octantSorter || orderingMode != SFCOrderingMode::OCTANTS)
+        return;
+
+    d_orderedNodeIndices = octantSorter->sortOctants(d_nodes, minBound, maxBound);
+
+    Node *d_tempNodes = nullptr;
+    CHECK_CUDA_ERROR(cudaMalloc(&d_tempNodes, nNodes * sizeof(Node)));
+
+    int blockSize = 256;
+    int gridSize = (nNodes + blockSize - 1) / blockSize;
+
+    ApplyNodeOrderingKernel<<<gridSize, blockSize>>>(d_nodes, d_tempNodes, d_orderedNodeIndices, nNodes);
+    CHECK_LAST_CUDA_ERROR();
+
+    CHECK_CUDA_ERROR(cudaMemcpy(d_nodes, d_tempNodes, nNodes * sizeof(Node), cudaMemcpyDeviceToDevice));
+
+    CHECK_CUDA_ERROR(cudaFree(d_tempNodes));
+}
+
+void SFCBarnesHut::resetOctree()
+{
+    BarnesHut::resetOctree();
+}
+
+void SFCBarnesHut::computeBoundingBox()
+{
+    BarnesHut::computeBoundingBox();
+
+    if (useSFC)
+    {
+        Node rootNode;
+        CHECK_CUDA_ERROR(cudaMemcpy(&rootNode, d_nodes, sizeof(Node), cudaMemcpyDeviceToHost));
+
+        minBound = rootNode.topLeftFront;
+        maxBound = rootNode.botRightBack;
+    }
+}
+
+void SFCBarnesHut::constructOctree()
+{
+    BarnesHut::constructOctree();
+
+    if (useSFC && orderingMode == SFCOrderingMode::OCTANTS)
+    {
+        orderOctantsBySFC();
+    }
+}
+
+void SFCBarnesHut::computeForces()
+{
+    BarnesHut::computeForces();
+}
+
+void SFCBarnesHut::update()
+{
+    checkInitialization();
+
+    CudaTimer timer(metrics.totalTimeMs);
+
+    if (useSFC)
+    {
+        iterationCounter++;
+
+        if (iterationCounter >= reorderFrequency || iterationCounter == 1)
+        {
+            iterationCounter = 0;
+
+            if (orderingMode == SFCOrderingMode::PARTICLES)
+            {
+                orderBodiesBySFC();
+            }
+        }
+    }
+
+    resetOctree();
+    constructOctree();
+    computeForces();
+
+    CHECK_LAST_CUDA_ERROR();
 }

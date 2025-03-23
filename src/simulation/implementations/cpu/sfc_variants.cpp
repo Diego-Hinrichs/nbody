@@ -4,10 +4,16 @@
 #include <limits>
 #include <algorithm>
 
-SFCCPUDirectSum::SFCCPUDirectSum(int numBodies, bool useParallelization, int threads,
-                                 bool enableSFC, int reorderFreq,
-                                 BodyDistribution dist, unsigned int seed)
-    : CPUDirectSum(numBodies, useParallelization, threads, dist, seed),
+SFCCPUDirectSum::SFCCPUDirectSum(
+    int numBodies,
+    bool useParallelization,
+    int threads,
+    bool enableSFC,
+    int reorderFreq,
+    BodyDistribution dist,
+    unsigned int seed,
+    MassDistribution massDist)
+    : CPUDirectSum(numBodies, useParallelization, threads, dist, seed, massDist),
       useSFC(enableSFC),
       reorderFrequency(reorderFreq),
       iterationCounter(0)
@@ -46,10 +52,7 @@ SFCCPUDirectSum::SFCCPUDirectSum(int numBodies, bool useParallelization, int thr
     }
 }
 
-SFCCPUDirectSum::~SFCCPUDirectSum()
-{
-    // Vector data will be automatically cleaned up
-}
+SFCCPUDirectSum::~SFCCPUDirectSum() {}
 
 void SFCCPUDirectSum::computeBoundingBox()
 {
@@ -186,7 +189,7 @@ void SFCCPUDirectSum::orderBodiesBySFC()
 
     // Sort indices based on Morton codes
     // Use parallel sort if OpenMP is enabled and we have enough bodies
-    if (useOpenMP && nBodies > 10000)
+    if (useOpenMP)
     {
         // Use a serial sort for simplicity and reliability
         // Parallel sorting would require more complex implementation
