@@ -29,7 +29,11 @@ SimulationState::SimulationState() : running(true),
                                      showOctree(false),
                                      octreeMaxDepth(3),
                                      octreeOpacity(0.5f),
-                                     octreeColorByMass(true)
+                                     octreeColorByMass(true),
+                                     useDynamicReordering(false),
+                                     dynamicReorderFrequency(10),
+                                     reorderTimeMs(0.0f),
+                                     simTimeMs(0.0f)
 {
     snprintf(seedInputBuffer, sizeof(seedInputBuffer), "%u", randomSeed.load());
 }

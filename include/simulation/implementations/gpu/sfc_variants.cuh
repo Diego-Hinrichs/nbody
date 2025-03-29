@@ -5,6 +5,7 @@
 #include "direct_sum.cuh"
 #include "../../../ui/simulation_state.hpp"
 #include "../../../sfc/sfc_framework.cuh"
+#include "../../../sfc/sfc_dynamic_reordering.cuh"
 
 // Forward declarations
 namespace sfc
@@ -63,6 +64,9 @@ private:
     sfc::OctantSorter *octantSorter;
     int *d_orderedBodyIndices;
     int *d_orderedNodeIndices;
+    
+    SFCDynamicReorderingStrategy dynamicReorderStrategy;
+    bool useDynamicReordering;
 
     Vector minBound;
     Vector maxBound;
@@ -93,7 +97,7 @@ public:
     virtual ~SFCBarnesHut();
 
     virtual void update() override;
-
+    void setDynamicReordering(bool enable);
     void enableSFC(bool enable) { useSFC = enable; }
     void setCurveType(sfc::CurveType type);
     void setOrderingMode(SFCOrderingMode mode) { orderingMode = mode; }

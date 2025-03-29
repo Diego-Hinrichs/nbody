@@ -4,6 +4,8 @@
 #include <imgui_impl_opengl3.h>
 #include <string>
 #include <omp.h>
+#include <ostream>
+#include <iostream>
 
 void SimulationUIManager::renderUI(GLFWwindow *window)
 {
@@ -165,15 +167,16 @@ void SimulationUIManager::renderBodyGenerationOptions()
     }
 
     // Show description based on selected mass distribution
-    switch (static_cast<MassDistribution>(currentMassDist)) {
-        case MassDistribution::UNIFORM:
-            ImGui::TextWrapped("Uniform: All bodies have exactly the same mass. Good for studying pure positional effects.");
-            break;
-        case MassDistribution::NORMAL:
-            ImGui::TextWrapped("Normal: Masses follow a normal (Gaussian) distribution. Provides moderate variation.");
-            break;
+    switch (static_cast<MassDistribution>(currentMassDist))
+    {
+    case MassDistribution::UNIFORM:
+        ImGui::TextWrapped("Uniform: All bodies have exactly the same mass. Good for studying pure positional effects.");
+        break;
+    case MassDistribution::NORMAL:
+        ImGui::TextWrapped("Normal: Masses follow a normal (Gaussian) distribution. Provides moderate variation.");
+        break;
     }
-    
+
     ImGui::Separator();
 
     // Random seed controls
@@ -356,7 +359,29 @@ void SimulationUIManager::renderAdvancedOptions()
 
     // Space-Filling Curve Options - show for all methods
     ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Space-Filling Curve Options");
+    if (simulationState_.useSFC.load())
+    {
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "SFC Reordering Strategy");
 
+        // Add dynamic reordering checkbox
+        static bool useDynamicReordering = false; // Always use a static fallback
+
+        if (ImGui::Checkbox("Use Dynamic Reordering", &useDynamicReordering))
+        {
+            // Try to store the value in the simulation state
+            try
+            {
+                simulationState_.useDynamicReordering.store(useDynamicReordering);
+            }
+            catch (...)
+            {
+                ImGui::Text("Error: Could not store dynamic reordering setting");
+            }
+        }
+
+        ImGui::TextWrapped("When enabled, reordering frequency is determined dynamically based on performance metrics rather than using a fixed interval.");
+    }
     // SFC Toggle
     bool sfcEnabled = simulationState_.useSFC.load();
     if (ImGui::Checkbox("Enable Space-Filling Curve", &sfcEnabled))
@@ -500,29 +525,16 @@ void SimulationUIManager::renderSFCOptions()
 
         // SFC Type Selection
         static const char *curveTypes[] = {"Morton (Z-order)", "Hilbert"};
-        static int curveTypeIndex = 0; // Default to Morton
+        int curveTypeIndex = (simulationState_.sfcCurveType.load() == sfc::CurveType::MORTON) ? 0 : 1;
 
         if (ImGui::Combo("Curve Type", &curveTypeIndex, curveTypes, IM_ARRAYSIZE(curveTypes)))
         {
-            // Store in simulation state - this will need to be added to SimulationState
-            // Alternatively, add this in the GUI code without storage
+            simulationState_.sfcCurveType.store(curveTypeIndex == 0 ? sfc::CurveType::MORTON : sfc::CurveType::HILBERT);
             simulationState_.restart.store(true);
         }
 
-        // Show appropriate description based on selection
-        if (curveTypeIndex == 0)
-        {
-            ImGui::TextWrapped("Morton/Z-order: Simple bit-interleaving curve. Faster to compute but less spatial coherence.");
-        }
-        else
-        {
-            ImGui::TextWrapped("Hilbert curve: Better spatial coherence (neighboring points stay closer), slightly more expensive to compute.");
-        }
-
-        // Only show ordering mode for Barnes-Hut methods
         if (supportsOctantOrdering)
         {
-            // SFC Ordering Mode
             static const char *orderingModes[] = {"Particle Ordering", "Octant Ordering"};
             int currentMode = static_cast<int>(simulationState_.sfcOrderingMode.load());
 
@@ -531,15 +543,36 @@ void SimulationUIManager::renderSFCOptions()
                 simulationState_.sfcOrderingMode.store(static_cast<SFCOrderingMode>(currentMode));
                 simulationState_.restart.store(true);
             }
+        }
 
-            // Ordering mode descriptions
-            if (currentMode == 0)
-            { // Particle ordering
-                ImGui::TextWrapped("Particle Ordering: Bodies are sorted according to their position along a Space-Filling Curve.");
-            }
-            else
-            { // Octant ordering
-                ImGui::TextWrapped("Octant Ordering: Tree nodes are arranged according to a Space-Filling Curve.");
+        // Add a clear separator before dynamic reordering options
+        ImGui::Separator();
+
+        // Dynamic Reordering section with a clear title
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Reordering Strategy");
+
+        // Debug output - see if we can access the field
+        static bool hasDynamicField = false;
+        try
+        {
+            hasDynamicField = simulationState_.useDynamicReordering.load();
+            ImGui::Text("Debug: useDynamicReordering field exists");
+        }
+        catch (...)
+        {
+            ImGui::Text("Debug: useDynamicReordering field does NOT exist");
+        }
+
+        // Always create a local variable for the checkbox
+        static bool useDynamicReordering = false;
+
+        // Create the checkbox regardless of whether the field exists
+        if (ImGui::Checkbox("Use Dynamic Reordering", &useDynamicReordering))
+        {
+            // Only try to store if the field exists
+            if (hasDynamicField)
+            {
+                simulationState_.useDynamicReordering.store(useDynamicReordering);
             }
         }
 
@@ -549,20 +582,6 @@ void SimulationUIManager::renderSFCOptions()
         {
             simulationState_.reorderFrequency.store(reorderFreq);
         }
-        ImGui::TextWrapped("How often to recalculate the space-filling curve ordering.");
-
-        // Performance metrics specific to SFC
-        ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "SFC Performance Impact");
-
-        // In a real implementation, you'd track these metrics in simulation_state
-        float memorySavings = 0.0f;      // Percent memory bandwidth saved
-        float cacheMissReduction = 0.0f; // Percent cache miss reduction
-
-        ImGui::Text("Memory bandwidth saved: %.1f%%", memorySavings);
-        ImGui::Text("Cache miss reduction: %.1f%%", cacheMissReduction);
-
-        ImGui::TextWrapped("Note: These metrics would need to be measured in the simulation for accurate reporting.");
     }
     else
     {

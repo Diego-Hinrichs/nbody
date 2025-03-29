@@ -161,11 +161,15 @@ struct SimulationMetrics
     float octreeTimeMs;
     float forceTimeMs;
     float totalTimeMs;
+    float reorderTimeMs;
+    float simTimeMs;
 
     SimulationMetrics() : resetTimeMs(0.0f),
                           bboxTimeMs(0.0f),
                           octreeTimeMs(0.0f),
                           forceTimeMs(0.0f),
+                          reorderTimeMs(0.0f),
+                          simTimeMs(0.0f),
                           totalTimeMs(0.0f) {}
 };
 

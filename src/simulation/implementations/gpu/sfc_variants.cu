@@ -318,7 +318,9 @@ SFCBarnesHut::SFCBarnesHut(
       d_orderedBodyIndices(nullptr),
       d_orderedNodeIndices(nullptr),
       reorderFrequency(reorderFreq),
-      iterationCounter(0)
+      iterationCounter(0),
+      dynamicReorderStrategy(10), // Window size of 10 for metrics
+      useDynamicReordering(true) // Default to fixed frequency
 {
     if (useSFC)
     {
@@ -353,6 +355,14 @@ SFCBarnesHut::~SFCBarnesHut()
     {
         delete octantSorter;
         octantSorter = nullptr;
+    }
+}
+
+void SFCBarnesHut::setDynamicReordering(bool enable) {
+    useDynamicReordering = enable;
+    if (enable) {
+        // Reset the strategy when enabling it
+        dynamicReorderStrategy.reset();
     }
 }
 
@@ -486,26 +496,94 @@ void SFCBarnesHut::update()
 {
     checkInitialization();
 
+    // Start timing the total update
     CudaTimer timer(metrics.totalTimeMs);
+    
+    // Variables to track timing for the dynamic reordering strategy
+    float reorderTime = 0.0f;
+    float simulationTime = 0.0f;
 
     if (useSFC)
     {
-        iterationCounter++;
-
-        if (iterationCounter >= reorderFrequency || iterationCounter == 1)
+        bool shouldReorder = false;
+        
+        if (useDynamicReordering)
         {
-            iterationCounter = 0;
+            // Use the dynamic strategy to determine if reordering is needed
+            shouldReorder = dynamicReorderStrategy.shouldReorder(
+                metrics.totalTimeMs, // Last simulation time
+                (orderingMode == SFCOrderingMode::PARTICLES) ? metrics.reorderTimeMs : 0.0f // Last reorder time
+            );
+        }
+        else
+        {
+            // Traditional fixed-frequency approach
+            iterationCounter++;
+            shouldReorder = (iterationCounter >= reorderFrequency || iterationCounter == 1);
+            if (shouldReorder) {
+                iterationCounter = 0;
+            }
+        }
 
+        if (shouldReorder)
+        {
+            // Measure reordering time if using particles ordering
             if (orderingMode == SFCOrderingMode::PARTICLES)
             {
+                CudaTimer reorderTimer(metrics.reorderTimeMs);
                 orderBodiesBySFC();
+                reorderTime = metrics.reorderTimeMs;
             }
         }
     }
 
-    resetOctree();
-    constructOctree();
-    computeForces();
+    // Time the main simulation steps
+    {
+        CudaTimer simTimer(metrics.simTimeMs); // Add this to your metrics structure
+        
+        resetOctree();
+        constructOctree();
+        
+        // Order octants if needed
+        if (useSFC && orderingMode == SFCOrderingMode::OCTANTS)
+        {
+            CudaTimer reorderTimer(metrics.reorderTimeMs);
+            orderOctantsBySFC();
+            reorderTime = metrics.reorderTimeMs;
+        }
+        
+        computeForces();
+        
+        simulationTime = metrics.simTimeMs;
+    }
 
     CHECK_LAST_CUDA_ERROR();
 }
+
+// void SFCBarnesHut::update()
+// {
+//     checkInitialization();
+
+//     CudaTimer timer(metrics.totalTimeMs);
+
+//     if (useSFC)
+//     {
+//         iterationCounter++;
+
+//         if (iterationCounter >= reorderFrequency || iterationCounter == 1)
+//         {
+//             iterationCounter = 0;
+
+//             if (orderingMode == SFCOrderingMode::PARTICLES)
+//             {
+//                 orderBodiesBySFC();
+//             }
+//         }
+//     }
+
+//     resetOctree();
+//     constructOctree();
+//     computeForces();
+
+//     CHECK_LAST_CUDA_ERROR();
+// }

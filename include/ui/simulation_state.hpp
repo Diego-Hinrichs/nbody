@@ -76,6 +76,11 @@ struct SimulationState
     // Thread synchronization
     std::mutex mtx;
 
+    std::atomic<bool> useDynamicReordering;
+    std::atomic<int> dynamicReorderFrequency;
+    std::atomic<float> reorderTimeMs;         // Time spent on last reordering
+    std::atomic<float> simTimeMs;             // Time spent on simulation excluding reordering
+    
     // Simulation parameters
     double offsetX;
     double offsetY;
