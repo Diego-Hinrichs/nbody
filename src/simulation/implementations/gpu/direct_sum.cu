@@ -3,8 +3,9 @@
 
 __global__ void DirectSumForceKernel(Body *bodies, int nBodies)
 {
-    __shared__ Vector sharedPos[256];  // Reducido de BLOCK_SIZE
-    __shared__ double sharedMass[256]; // Reducido de BLOCK_SIZE
+    extern __shared__ char sharedMemory[];
+    Vector *sharedPos = (Vector*)sharedMemory;
+    double *sharedMass = (double*)(sharedPos + blockDim.x);
 
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int tx = threadIdx.x;
@@ -24,7 +25,7 @@ __global__ void DirectSumForceKernel(Body *bodies, int nBodies)
     }
 
     // Reducir la cantidad de cálculos
-    const int tileSize = 256; // Usar un tamaño de tile más pequeño
+    const int tileSize = blockDim.x; // Use block size as tile size
 
     // Procesar todos los tiles
     for (int tile = 0; tile < (nBodies + tileSize - 1) / tileSize; ++tile)
@@ -121,12 +122,12 @@ void GPUDirectSum::computeForces()
     // Medir tiempo de ejecución
     CudaTimer timer(metrics.forceTimeMs);
 
-    // Lanzar kernel con un tamaño de bloque más pequeño
-    int blockSize = 256; // Reducido de BLOCK_SIZE (1024)
+    // Use the global block size variable
+    int blockSize = g_blockSize;
     int gridSize = (nBodies + blockSize - 1) / blockSize;
 
     // Lanzar kernel con comprobación de errores
-    DirectSumForceKernel<<<gridSize, blockSize, 0, 0>>>(d_bodies, nBodies);
+    DirectSumForceKernel<<<gridSize, blockSize, blockSize * sizeof(Vector) + blockSize * sizeof(double), 0>>>(d_bodies, nBodies);
     CHECK_LAST_CUDA_ERROR();
 }
 

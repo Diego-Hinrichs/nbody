@@ -5,9 +5,10 @@
 
 __global__ void SFCDirectSumForceKernel(Body *bodies, int *orderedIndices, bool useSFC, int nBodies)
 {
-    // Reduced size shared memory arrays
-    __shared__ Vector sharedPos[256];  // Reduced from BLOCK_SIZE
-    __shared__ double sharedMass[256]; // Reduced from BLOCK_SIZE
+    // Use dynamic shared memory
+    extern __shared__ char sharedMemory[];
+    Vector *sharedPos = (Vector*)sharedMemory;
+    double *sharedMass = (double*)(sharedPos + blockDim.x);
 
     // Get global thread ID
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -31,8 +32,8 @@ __global__ void SFCDirectSumForceKernel(Body *bodies, int *orderedIndices, bool 
         isDynamic = bodies[realBodyIndex].isDynamic;
     }
 
-    // Reduce computation with tiling approach
-    const int tileSize = 256; // Smaller tile size for better occupancy
+    // Use block size as tile size for better memory access patterns
+    const int tileSize = blockDim.x;
 
     // Process all tiles
     for (int tile = 0; tile < (nBodies + tileSize - 1) / tileSize; ++tile)
@@ -238,10 +239,11 @@ void SFCGPUDirectSum::computeForces()
     CudaTimer timer(metrics.forceTimeMs);
 
     // Launch kernel with SFC support
-    int blockSize = 256; // Reduced block size for better occupancy
+    int blockSize = g_blockSize;
     int gridSize = (nBodies + blockSize - 1) / blockSize;
 
-    SFCDirectSumForceKernel<<<gridSize, blockSize>>>(d_bodies, d_orderedIndices, useSFC, nBodies);
+    size_t sharedMemSize = blockSize * sizeof(Vector) + blockSize * sizeof(double);
+    SFCDirectSumForceKernel<<<gridSize, blockSize, sharedMemSize>>>(d_bodies, d_orderedIndices, useSFC, nBodies);
     CHECK_LAST_CUDA_ERROR();
 }
 
@@ -426,7 +428,7 @@ void SFCBarnesHut::orderBodiesBySFC()
     Body *d_tempBodies = nullptr;
     CHECK_CUDA_ERROR(cudaMalloc(&d_tempBodies, nBodies * sizeof(Body)));
 
-    int blockSize = 256;
+    int blockSize = g_blockSize;
     int gridSize = (nBodies + blockSize - 1) / blockSize;
 
     ApplyBodyOrderingKernel<<<gridSize, blockSize>>>(d_bodies, d_tempBodies, d_orderedBodyIndices, nBodies);
@@ -447,7 +449,7 @@ void SFCBarnesHut::orderOctantsBySFC()
     Node *d_tempNodes = nullptr;
     CHECK_CUDA_ERROR(cudaMalloc(&d_tempNodes, nNodes * sizeof(Node)));
 
-    int blockSize = 256;
+    int blockSize = g_blockSize;
     int gridSize = (nNodes + blockSize - 1) / blockSize;
 
     ApplyNodeOrderingKernel<<<gridSize, blockSize>>>(d_nodes, d_tempNodes, d_orderedNodeIndices, nNodes);

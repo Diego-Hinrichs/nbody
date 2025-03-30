@@ -3,13 +3,16 @@
 
 __global__ void ComputeBoundingBoxKernel(Node *node, Body *bodies, int *mutex, int nBodies)
 {
-    // Memoria compartida para cada dimensión
-    __shared__ double topLeftFrontX[BLOCK_SIZE];
-    __shared__ double topLeftFrontY[BLOCK_SIZE];
-    __shared__ double topLeftFrontZ[BLOCK_SIZE];
-    __shared__ double botRightBackX[BLOCK_SIZE];
-    __shared__ double botRightBackY[BLOCK_SIZE];
-    __shared__ double botRightBackZ[BLOCK_SIZE];
+    // Use dynamic shared memory
+    extern __shared__ double sharedMemory[];
+    
+    // Partition the shared memory for different arrays
+    double* topLeftFrontX = sharedMemory;
+    double* topLeftFrontY = &sharedMemory[blockDim.x];
+    double* topLeftFrontZ = &sharedMemory[2 * blockDim.x];
+    double* botRightBackX = &sharedMemory[3 * blockDim.x];
+    double* botRightBackY = &sharedMemory[4 * blockDim.x];
+    double* botRightBackZ = &sharedMemory[5 * blockDim.x];
 
     int tx = threadIdx.x;
     int b = blockIdx.x * blockDim.x + tx;

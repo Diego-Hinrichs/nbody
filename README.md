@@ -5,7 +5,7 @@
 - [x] Add a new option to choose the mass distribution: uniform or normal
 - [ ] Optimize the frequency at which the points are re-ordered
 - [ ] Implement the SPH method with fixed radius (parameter `r`)
-- [ ] Allow the program to be run via the terminal with essential options:
+- [x] Allow the program to be run via the terminal with essential options:
 ```bash
 ./prog \
   -n <particulas> \  

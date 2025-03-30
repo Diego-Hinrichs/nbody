@@ -315,8 +315,11 @@ __global__ void ConstructOctTreeKernel(Node *node, Body *bodies, Body *buffer, i
 {
     // Reservamos memoria compartida para 8 contadores y 8 offsets (total 16 enteros)
     __shared__ int count[16]; // count[0..7]: cantidad de cuerpos por octante; count[8..15]: offsets base
-    __shared__ double totalMass[BLOCK_SIZE];
-    __shared__ double3 centerMass[BLOCK_SIZE];
+    
+    // Use dynamic shared memory for mass calculations
+    extern __shared__ char sharedMassMemory[];
+    double *totalMass = (double*)sharedMassMemory;
+    double3 *centerMass = (double3*)(totalMass + blockDim.x);
 
     int tx = threadIdx.x;
     // Ajustar el índice del nodo según el bloque

@@ -1215,3 +1215,54 @@ void SimulationBase::initRandomBodies(Body *bodies, int numBodies, Vector center
         bodies[i].acceleration = Vector(0.0, 0.0, 0.0);
     }
 }
+
+double SimulationBase::getKineticEnergy() const
+{
+    // Make sure we have the latest data from device
+    const_cast<SimulationBase*>(this)->copyBodiesFromDevice();
+    
+    double totalKineticEnergy = 0.0;
+    
+    // Calculate kinetic energy: sum of 0.5 * m * v^2 for all bodies
+    for (int i = 0; i < nBodies; i++)
+    {
+        if (h_bodies[i].isDynamic)
+        {
+            double vSquared = h_bodies[i].velocity.x * h_bodies[i].velocity.x +
+                             h_bodies[i].velocity.y * h_bodies[i].velocity.y + 
+                             h_bodies[i].velocity.z * h_bodies[i].velocity.z;
+            
+            totalKineticEnergy += 0.5 * h_bodies[i].mass * vSquared;
+        }
+    }
+    
+    return totalKineticEnergy;
+}
+
+double SimulationBase::getPotentialEnergy() const
+{
+    // Make sure we have the latest data from device
+    const_cast<SimulationBase*>(this)->copyBodiesFromDevice();
+    
+    double totalPotentialEnergy = 0.0;
+    
+    // Calculate gravitational potential energy: sum of G * m1 * m2 / r for all pairs of bodies
+    for (int i = 0; i < nBodies; i++)
+    {
+        for (int j = i + 1; j < nBodies; j++)
+        {
+            // Calculate distance between bodies
+            double dx = h_bodies[i].position.x - h_bodies[j].position.x;
+            double dy = h_bodies[i].position.y - h_bodies[j].position.y;
+            double dz = h_bodies[i].position.z - h_bodies[j].position.z;
+            
+            double distSquared = dx * dx + dy * dy + dz * dz + E * E; // Adding softening factor to avoid singularity
+            double dist = sqrt(distSquared);
+            
+            // Gravitational potential energy (negative by convention)
+            totalPotentialEnergy -= GRAVITY * h_bodies[i].mass * h_bodies[j].mass / dist;
+        }
+    }
+    
+    return totalPotentialEnergy;
+}

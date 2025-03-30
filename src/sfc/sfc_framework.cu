@@ -190,7 +190,7 @@ namespace sfc
     int *BodySorter::sortBodies(Body *d_bodies, const Vector &minBound, const Vector &maxBound)
     {
         // Determine block and grid size
-        int blockSize = BLOCK_SIZE;
+        int blockSize = g_blockSize;
         int gridSize = (numBodies + blockSize - 1) / blockSize;
 
         // Determine whether we're using Hilbert curve
@@ -251,7 +251,7 @@ namespace sfc
     int *OctantSorter::sortOctants(Node *d_nodes, const Vector &minBound, const Vector &maxBound)
     {
         // Determine block and grid size
-        int blockSize = BLOCK_SIZE;
+        int blockSize = g_blockSize;
         int gridSize = (numNodes + blockSize - 1) / blockSize;
 
         // Determine whether we're using Hilbert curve

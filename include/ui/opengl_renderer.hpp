@@ -30,10 +30,6 @@ public:
     void setParticleSize(float size) { particleSize = size; }
     float getParticleSize() const { return particleSize; }
 
-    // New methods for octree visualization
-    void updateOctreeVisualization(Node* nodes, int numNodes, int rootIndex, int maxDepth);
-    void renderOctree(float aspectRatio);
-
 private:
     // Reference to simulation state for dynamic parameters
     SimulationState &simulationState_;
@@ -60,28 +56,6 @@ private:
     void createShaderProgram();
     void setupBuffers();
     
-    // Octree shader creation
-    void initOctreeRenderer();
-    
-    // Helper method to add a node to the octree visualization
-    void addNodeToOctreeVisualization(
-        std::vector<float>& vertices,
-        const Node& node,
-        float scaleFactor,
-        int currentDepth,
-        int maxDepth
-    );
-    
-    // Helper method to recursively process octree nodes
-    void processOctreeNode(
-        std::vector<float>& vertices,
-        Node* nodes, 
-        int numNodes,
-        int nodeIndex, 
-        float scaleFactor,
-        int currentDepth, 
-        int maxDepth
-    );
 };
 
 #endif // OPENGL_RENDERER_H

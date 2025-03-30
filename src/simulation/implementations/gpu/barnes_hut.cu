@@ -80,7 +80,7 @@ void BarnesHut::resetOctree()
     // printf("BarnesHut::resetOctree: nNodes=%d, nBodies=%d\n", nNodes, nBodies);
     // printf("BarnesHut::resetOctree: d_nodes=%p, d_mutex=%p\n", d_nodes, d_mutex);
 
-    int blockSize = BLOCK_SIZE;
+    int blockSize = g_blockSize;
     int numBlocks = (nNodes + blockSize - 1) / blockSize;
     // printf("BarnesHut::resetOctree: blockSize=%d, numBlocks=%d\n", blockSize, numBlocks);
 
@@ -103,17 +103,25 @@ void BarnesHut::computeBoundingBox()
     // Measure execution time
     CudaTimer timer(metrics.bboxTimeMs);
 
-    // Launch bounding box computation kernel with SFC support
-    int blockSize = BLOCK_SIZE;
+    // Compute the bounding box of all bodies
+    int blockSize = g_blockSize;
     int gridSize = (nBodies + blockSize - 1) / blockSize;
-    ComputeBoundingBoxKernel<<<gridSize, blockSize>>>(d_nodes, d_bodies, d_mutex, nBodies);
+    
+    // Calculate shared memory size (6 arrays of doubles, each of size blockSize)
+    size_t sharedMemSize = 6 * blockSize * sizeof(double);
+    ComputeBoundingBoxKernel<<<gridSize, blockSize, sharedMemSize>>>(d_nodes, d_bodies, d_mutex, nBodies);
     CHECK_LAST_CUDA_ERROR();
 }
 
 void BarnesHut::constructOctree()
 {
-    int blockSize = BLOCK_SIZE;
-    ConstructOctTreeKernel<<<1, blockSize>>>(d_nodes, d_bodies, d_bodiesBuffer, 0, nNodes, nBodies, leafLimit);
+    int blockSize = g_blockSize;
+    
+    // Calculate shared memory size for the octree kernel
+    size_t sharedMemSize = blockSize * sizeof(double) +  // totalMass array
+                            blockSize * sizeof(double3);  // centerMass array
+                            
+    ConstructOctTreeKernel<<<1, blockSize, sharedMemSize>>>(d_nodes, d_bodies, d_bodiesBuffer, 0, nNodes, nBodies, leafLimit);
     CHECK_LAST_CUDA_ERROR();
 }
 
@@ -122,9 +130,9 @@ void BarnesHut::computeForces()
     // Measure execution time
     CudaTimer timer(metrics.forceTimeMs);
 
-    int blockSize = 32;
+    int blockSize = g_blockSize;
     dim3 gridSize = ceil((float)nBodies / blockSize);
-    ComputeForceKernel<<<gridSize, blockSize>>>(d_nodes, d_bodies, nNodes, nBodies, leafLimit);
+    ComputeForceKernel<<<gridSize, blockSize>>>(d_nodes, d_bodies, nNodes, nBodies, leafLimit, g_theta);
     CHECK_LAST_CUDA_ERROR();
 }
 

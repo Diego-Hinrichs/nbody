@@ -14,7 +14,7 @@ __device__ bool isCollide(Body &b1, Vector cm)
     return threshold > d;
 }
 
-__device__ void ComputeForce(Node *node, Body *bodies, int nodeIndex, int bodyIndex, int nNodes, int nBodies, int leafLimit, double width)
+__device__ void ComputeForce(Node *node, Body *bodies, int nodeIndex, int bodyIndex, int nNodes, int nBodies, int leafLimit, double width, double theta)
 {
     if (nodeIndex >= nNodes)
         return;
@@ -50,7 +50,7 @@ __device__ void ComputeForce(Node *node, Body *bodies, int nodeIndex, int bodyIn
     // Caso de aproximación multipolo
     double distance = getDistance(bi.position, curNode.centerMass);
     double sd = width / distance; // TAMANIO DE LA REGION / DISTANCIA
-    if (sd < THETA)
+    if (sd < theta)
     {
         if (!isCollide(bi, curNode.centerMass))
         {
@@ -74,12 +74,12 @@ __device__ void ComputeForce(Node *node, Body *bodies, int nodeIndex, int bodyIn
     // Si no se cumple la condición de aproximación, se recorre recursivamente a los 8 hijos.
     for (int i = 1; i <= 8; i++)
     {
-        ComputeForce(node, bodies, (nodeIndex * 8) + i, bodyIndex, nNodes, nBodies, leafLimit, width / 2);
+        ComputeForce(node, bodies, (nodeIndex * 8) + i, bodyIndex, nNodes, nBodies, leafLimit, width / 2, theta);
     }
 }
 
 
-__global__ void ComputeForceKernel(Node *node, Body *bodies, int nNodes, int nBodies, int leafLimit)
+__global__ void ComputeForceKernel(Node *node, Body *bodies, int nNodes, int nBodies, int leafLimit, double theta)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     double width = node[0].botRightBack.x - node[0].topLeftFront.x;
@@ -92,7 +92,7 @@ __global__ void ComputeForceKernel(Node *node, Body *bodies, int nNodes, int nBo
             bi.acceleration = {0.0, 0.0, 0.0};
 
             // Compute the force recursively
-            ComputeForce(node, bodies, 0, i, nNodes, nBodies, leafLimit, width);
+            ComputeForce(node, bodies, 0, i, nNodes, nBodies, leafLimit, width, theta);
 
             // Update velocity and position with integration (Euler)
             bi.velocity.x += bi.acceleration.x * DT;

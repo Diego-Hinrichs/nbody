@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <memory>
 #include <functional>
+#include <fstream>
 #include <vector>
 
 #include <glad/glad.h>
@@ -14,6 +15,7 @@
 #include <glm/glm.hpp>
 
 #include "../include/common/constants.cuh"
+
 #include "../include/simulation/base/base.cuh"
 #include "../include/simulation/simulation_thread.hpp"
 
@@ -28,6 +30,10 @@
 #include "../include/ui/simulation_state.hpp"
 #include "../include/ui/opengl_renderer.hpp"
 #include "../include/ui/simulation_ui_manager.hpp"
+
+// Define the global variables
+double g_theta = 0.5; // Default theta value
+int g_blockSize = 256; // Default block size
 
 // NVIDIA GPU selection hint for Linux
 extern "C"
@@ -46,8 +52,17 @@ void logMessage(const std::string &message, bool isError = false)
 struct SimulationConfig
 {
     int initialBodies = 1024;
+    int sortType = 0;        // 0: none, 1: hilbert, 2: morton
+    int numSteps = 1000;     // Number of simulation steps
+    int massDistribution = 0; // 0: uniform, 1: normal
+    int algorithm = 0;       // 0: cpu-direct-sum, 1: cpu-barnes, 2: gpu-direct-sum, 3: gpu-barnes-hut
+    float theta = 0.5f;      // Barnes-Hut parameter
+    bool visualization = true; // 0: off, 1: on
+    std::string energyOutput = ""; // Output file for energy data
+    int numThreads = 1;      // Number of threads for CPU implementations
+    int blockSize = 256;     // Block size for GPU implementations
     bool fullscreen = true;
-    bool useSFC = false;
+    bool useSFC = false;     // Used for space-filling curve options
     bool verbose = false;
 };
 
@@ -56,19 +71,83 @@ SimulationConfig parseArgs(int argc, char **argv)
 {
     SimulationConfig config;
 
-    if (argc > 1)
-        config.initialBodies = std::stoi(argv[1]);
-    if (argc > 2)
-        config.fullscreen = std::stoi(argv[2]);
+    for (int i = 1; i < argc; i++) {
+        std::string arg = argv[i];
+        
+        if (arg == "-n" && i + 1 < argc) {
+            config.initialBodies = std::stoi(argv[++i]);
+        }
+        else if (arg == "-sort" && i + 1 < argc) {
+            config.sortType = std::stoi(argv[++i]);
+            config.useSFC = (config.sortType > 0); // Enable SFC if using Hilbert or Morton
+        }
+        else if (arg == "-steps" && i + 1 < argc) {
+            config.numSteps = std::stoi(argv[++i]);
+        }
+        else if (arg == "-mdist" && i + 1 < argc) {
+            config.massDistribution = std::stoi(argv[++i]);
+        }
+        else if (arg == "-alg" && i + 1 < argc) {
+            config.algorithm = std::stoi(argv[++i]);
+        }
+        else if (arg == "-theta" && i + 1 < argc) {
+            config.theta = std::stof(argv[++i]);
+        }
+        else if (arg == "-visual" && i + 1 < argc) {
+            config.visualization = (std::stoi(argv[++i]) != 0);
+            config.fullscreen = config.visualization; // Only fullscreen if visualization is enabled
+        }
+        else if (arg == "-energy" && i + 1 < argc) {
+            config.energyOutput = argv[++i];
+        }
+        else if (arg == "-nt" && i + 1 < argc) {
+            config.numThreads = std::stoi(argv[++i]);
+        }
+        else if (arg == "-bs" && i + 1 < argc) {
+            config.blockSize = std::stoi(argv[++i]);
+        }
+        else if (arg == "-verbose") {
+            config.verbose = true;
+        }
+        else if (arg == "-help" || arg == "--help" || arg == "-h") {
+            std::cout << "N-Body Simulation Usage:\n"
+                      << "  ./prog [options]\n"
+                      << "Options:\n"
+                      << "  -n <particles>      : Number of particles (default: 1024)\n"
+                      << "  -sort <type>        : Space-filling curve type (0: none, 1: hilbert, 2: morton) (default: 0)\n"
+                      << "  -steps <steps>      : Number of simulation steps (default: 1000)\n"
+                      << "  -mdist <type>       : Mass distribution (0: uniform, 1: normal) (default: 0)\n"
+                      << "  -alg <algorithm>    : Algorithm (0: cpu-direct-sum, 1: cpu-barnes, 2: gpu-direct-sum, 3: gpu-barnes-hut) (default: 0)\n"
+                      << "  -theta <float>      : Barnes-Hut theta parameter (default: 0.5)\n"
+                      << "  -visual <0|1>       : Enable visualization (0: off, 1: on) (default: 1)\n"
+                      << "  -energy <filename>  : Output energy data to file\n"
+                      << "  -nt <threads>       : Number of threads for CPU algorithms (default: 1)\n"
+                      << "  -bs <blocksize>     : Block size for GPU algorithms (default: 256)\n"
+                      << "  -verbose            : Enable verbose output\n"
+                      << "  -help, --help, -h   : Show this help message\n";
+            exit(0);
+        }
+    }
+
+    if (config.verbose) {
+        std::cout << "Configuration:\n"
+                  << "  Particles: " << config.initialBodies << "\n"
+                  << "  Sort Type: " << config.sortType << "\n"
+                  << "  Steps: " << config.numSteps << "\n"
+                  << "  Mass Distribution: " << config.massDistribution << "\n"
+                  << "  Algorithm: " << config.algorithm << "\n"
+                  << "  Theta: " << config.theta << "\n"
+                  << "  Visualization: " << (config.visualization ? "On" : "Off") << "\n"
+                  << "  Energy Output: " << (config.energyOutput.empty() ? "None" : config.energyOutput) << "\n"
+                  << "  Threads: " << config.numThreads << "\n"
+                  << "  Block Size: " << config.blockSize << "\n";
+    }
 
     return config;
 }
 
 // Global simulation state for callbacks
 SimulationState *g_simulationState = nullptr;
-
-// Forward declaration of octree visualization functions
-void updateOctreeVisualization(SimulationThread *simThread, OpenGLRenderer &renderer);
 
 // GLFW error callback
 void glfw_error_callback(int error, const char *description)
@@ -216,14 +295,6 @@ void renderLoop(GLFWwindow *window, SimulationState &simulationState, Simulation
             }
         }
 
-        // Update octree visualization if enabled
-        frameCounter++;
-        if (simulationState.showOctree && frameCounter >= OCTREE_UPDATE_FREQ)
-        {
-            frameCounter = 0;
-            simThread.updateOctreeVisualization(renderer);
-        }
-
         // Get window dimensions
         int width, height;
         glfwGetFramebufferSize(window, &width, &height);
@@ -267,13 +338,60 @@ int main(int argc, char **argv)
         // Setup ImGui
         setupImGui(window);
 
-        // Create simulation state
+        // Create simulation state and apply all command-line parameters
         SimulationState simulationState;
+        
+        // Basic parameters
         simulationState.numBodies.store(config.initialBodies);
         simulationState.useSFC.store(config.useSFC);
-
-        // Inicializar variables para visualización de octree
-        simulationState.showOctree = false;
+        
+        // Set sorting method based on command-line parameter
+        if (config.sortType > 0) {
+            // Set the SFC curve type
+            simulationState.sfcCurveType.store(config.sortType == 1 ? 
+                sfc::CurveType::HILBERT : sfc::CurveType::MORTON);
+        }
+        
+        // Set the distribution type
+        simulationState.massDistribution.store(config.massDistribution == 0 ? 
+            MassDistribution::UNIFORM : MassDistribution::NORMAL);
+        
+        // Set the algorithm type
+        switch (config.algorithm) {
+            case 0: // CPU direct sum
+                simulationState.simulationMethod.store(SimulationMethod::CPU_DIRECT_SUM);
+                break;
+            case 1: // CPU Barnes-Hut
+                simulationState.simulationMethod.store(SimulationMethod::CPU_BARNES_HUT);
+                break;
+            case 2: // GPU direct sum
+                simulationState.simulationMethod.store(SimulationMethod::GPU_DIRECT_SUM);
+                break;
+            case 3: // GPU Barnes-Hut
+                simulationState.simulationMethod.store(SimulationMethod::GPU_BARNES_HUT);
+                break;
+        }
+        
+        // Set the Barnes-Hut theta parameter if applicable
+        if (config.algorithm == 1 || config.algorithm == 3) {
+            // Set the global theta parameter
+            g_theta = config.theta;
+            logMessage("Using Barnes-Hut with theta: " + std::to_string(g_theta));
+        } else {
+            // Reset to default for non-Barnes-Hut algorithms
+            g_theta = 0.5; // Default theta value
+        }
+        
+        // Set the block size for GPU kernels
+        g_blockSize = config.blockSize;
+        logMessage("Using CUDA block size: " + std::to_string(g_blockSize));
+        
+        // Set thread count for CPU implementations
+        simulationState.openMPThreads.store(config.numThreads);
+        simulationState.useOpenMP.store(config.numThreads > 1);
+        
+        // Initialize variables for octree visualization
+        simulationState.showOctree = (config.algorithm == 1 || config.algorithm == 3); // Show octree for Barnes-Hut
         simulationState.octreeMaxDepth = 3;
         simulationState.octreeOpacity = 0.5f;
         simulationState.octreeColorByMass = true;
@@ -291,7 +409,65 @@ int main(int argc, char **argv)
         g_simulationState = &simulationState;
 
         // Main render loop
-        renderLoop(window, simulationState, simulationThread, renderer, uiManager);
+        // Open energy output file if specified
+        std::ofstream energyOutput;
+        if (!config.energyOutput.empty()) {
+            energyOutput.open(config.energyOutput);
+            if (energyOutput.is_open()) {
+                logMessage("Energy output will be written to: " + config.energyOutput);
+                // Write header
+                energyOutput << "Step,Time,KineticEnergy,PotentialEnergy,TotalEnergy" << std::endl;
+            } else {
+                logMessage("Failed to open energy output file: " + config.energyOutput, true);
+            }
+        }
+
+        // If visualization is enabled, run the render loop
+        if (config.visualization) {
+            renderLoop(window, simulationState, simulationThread, renderer, uiManager);
+        }
+        // Otherwise, run the simulation for the specified number of steps
+        else {
+            logMessage("Running simulation without visualization for " + std::to_string(config.numSteps) + " steps");
+            
+            // Wait a moment for the simulation to initialize
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            
+            // Run for the specified number of steps
+            for (int step = 0; step < config.numSteps && simulationState.running.load(); ++step) {
+                // Get current simulation data for energy calculation
+                if (!config.energyOutput.empty() && energyOutput.is_open()) {
+                    SimulationData simData = simulationThread.getSimulationData();
+                    if (simData.valid && simData.simulation) {
+                        // Calculate energies
+                        double kineticEnergy = simData.simulation->getKineticEnergy();
+                        double potentialEnergy = simData.simulation->getPotentialEnergy();
+                        double totalEnergy = kineticEnergy + potentialEnergy;
+                        
+                        // Write to output file
+                        energyOutput << step << "," 
+                                    << simulationState.lastIterationTime << ","
+                                    << kineticEnergy << ","
+                                    << potentialEnergy << ","
+                                    << totalEnergy << std::endl;
+                    }
+                }
+                
+                // Print progress every 10% of steps
+                if (step % (config.numSteps / 10) == 0 || step == config.numSteps - 1) {
+                    logMessage("Simulation progress: " + std::to_string(step + 1) + "/" + 
+                              std::to_string(config.numSteps) + " steps");
+                }
+                
+                // Sleep briefly to avoid consuming 100% CPU while getting status
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        }
+        
+        // Close energy output file if opened
+        if (energyOutput.is_open()) {
+            energyOutput.close();
+        }
 
         // Cleanup
         simulationState.running.store(false);

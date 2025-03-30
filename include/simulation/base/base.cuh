@@ -12,7 +12,7 @@
 __global__ void ResetKernel(Node *node, int *mutex, int nNodes, int nBodies);
 __global__ void ComputeBoundingBoxKernel(Node *node, Body *bodies, int *mutex, int nBodies);
 __global__ void ConstructOctTreeKernel(Node *node, Body *bodies, Body *buffer, int nodeIndex, int nNodes, int nBodies, int leafLimit);
-__global__ void ComputeForceKernel(Node *node, Body *bodies, int nNodes, int nBodies, int leafLimit);
+__global__ void ComputeForceKernel(Node *node, Body *bodies, int nNodes, int nBodies, int leafLimit, double theta);
 
 class SimulationBase
 {
@@ -66,6 +66,10 @@ public:
     virtual void update() = 0;
     void copyBodiesToDevice();
     void copyBodiesFromDevice();
+
+    // New energy calculation functions
+    double getKineticEnergy() const;
+    double getPotentialEnergy() const;
 
     Body *getBodies() const
     {

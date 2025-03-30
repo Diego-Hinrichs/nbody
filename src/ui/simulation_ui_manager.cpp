@@ -56,12 +56,6 @@ void SimulationUIManager::renderUI(GLFWwindow *window)
             ImGui::EndTabItem();
         }
 
-        if (ImGui::BeginTabItem("Octree View"))
-        {
-            renderOctreeVisualizationOptions();
-            ImGui::EndTabItem();
-        }
-
         ImGui::EndTabBar();
     }
 

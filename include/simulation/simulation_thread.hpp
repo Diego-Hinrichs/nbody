@@ -72,8 +72,6 @@ public:
 
     SimulationData getSimulationData();
 
-    // Nueva función para actualizar la visualización del octree
-    void updateOctreeVisualization(OpenGLRenderer &renderer);
 };
 
 #endif // SIMULATION_THREAD_HPP

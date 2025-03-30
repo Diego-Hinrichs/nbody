@@ -13,11 +13,9 @@ namespace SimulationConstants
     constexpr double GRAVITY = 6.67430e-11;        // Gravitational constant
     constexpr double SOFTENING_FACTOR = 0.5;       // Softening factor for avoiding div by 0
     constexpr double TIME_STEP = 25000.0;          // Time step in seconds
-    constexpr double THETA = 0.5;                  // Multipole acceptance criterion
     constexpr double COLLISION_THRESHOLD = 1.0e10; // Collision threshold distance
 
     // Simulation constants
-    constexpr int BLOCK_SIZE = 1024;  // CUDA block size
     constexpr int MAX_NODES = 349525; // Maximum number of nodes in the octree
     constexpr int N_LEAF = 262144;    // Leaf threshold (affects recursion depth)
 
@@ -47,9 +45,13 @@ namespace SimulationConstants
 #define GRAVITY SimulationConstants::GRAVITY
 #define E SimulationConstants::SOFTENING_FACTOR
 #define DT SimulationConstants::TIME_STEP
-#define THETA SimulationConstants::THETA
+// Runtime configurable theta parameter (Barnes-Hut opening angle)
+extern double g_theta;
+#define THETA g_theta
 #define COLLISION_TH SimulationConstants::COLLISION_THRESHOLD
-#define BLOCK_SIZE SimulationConstants::BLOCK_SIZE
+// Runtime configurable block size parameter
+extern int g_blockSize;
+#define BLOCK_SIZE g_blockSize
 #define MAX_NODES SimulationConstants::MAX_NODES
 #define N_LEAF SimulationConstants::N_LEAF
 #define MAX_DIST SimulationConstants::MAX_DIST
