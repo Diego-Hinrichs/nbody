@@ -89,9 +89,9 @@ public:
         int numBodies,
         bool enableSFC = true,
         SFCOrderingMode ordMode = SFCOrderingMode::PARTICLES,
-        int reorderFreq = 10,
-        BodyDistribution dist = BodyDistribution::SOLAR_SYSTEM,
-        unsigned int seed = static_cast<unsigned int>(time(nullptr)),
+        int reorderFreq = 1,
+        BodyDistribution dist = BodyDistribution::RANDOM_BODIES,
+        unsigned int seed = 12345,
         MassDistribution massDist = MassDistribution::UNIFORM);
 
     virtual ~SFCBarnesHut();
@@ -102,6 +102,7 @@ public:
     void setCurveType(sfc::CurveType type);
     void setOrderingMode(SFCOrderingMode mode) { orderingMode = mode; }
     void setReorderFrequency(int frequency) { reorderFrequency = frequency; }
+    void setMetricsWindowSize(int windowSize);
 
     bool isSFCEnabled() const { return useSFC; }
     SFCOrderingMode getOrderingMode() const { return orderingMode; }

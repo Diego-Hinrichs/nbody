@@ -103,6 +103,10 @@ struct SimulationState
     float octreeOpacity;    // Opacidad de las líneas del octree
     bool octreeColorByMass; // Colorear nodos según masa
 
+    // Dynamic reordering settings
+    std::atomic<bool> dynamicReordering;
+    std::atomic<int> metricsWindowSize;
+
     // Constructor with default initialization
     SimulationState();
 

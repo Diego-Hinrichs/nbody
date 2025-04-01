@@ -6,6 +6,7 @@
 #include <functional>
 #include <fstream>
 #include <vector>
+#include <omp.h>
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -53,17 +54,22 @@ struct SimulationConfig
 {
     int initialBodies = 1024;
     int sortType = 0;        // 0: none, 1: hilbert, 2: morton
-    int numSteps = 1000;     // Number of simulation steps
+    int numSteps = 10000000;     // Number of simulation steps
     int massDistribution = 0; // 0: uniform, 1: normal
     int algorithm = 0;       // 0: cpu-direct-sum, 1: cpu-barnes, 2: gpu-direct-sum, 3: gpu-barnes-hut
     float theta = 0.5f;      // Barnes-Hut parameter
     bool visualization = true; // 0: off, 1: on
     std::string energyOutput = ""; // Output file for energy data
-    int numThreads = 1;      // Number of threads for CPU implementations
+    int numThreads = omp_get_max_threads();      // Default to max threads for CPU implementations
     int blockSize = 256;     // Block size for GPU implementations
     bool fullscreen = true;
     bool useSFC = false;     // Used for space-filling curve options
     bool verbose = false;
+    bool headless = false;   // Run without any UI or visualization
+    bool reportMetrics = false; // Report detailed metrics at the end
+    unsigned int randomSeed = 12345; // Random seed for reproducibility
+    bool dynamicReordering = true; // Use dynamic reordering for Barnes-Hut SFC
+    int metricsWindowSize = 10; // Window size for dynamic reordering metrics
 };
 
 // Parse command-line arguments
@@ -74,20 +80,20 @@ SimulationConfig parseArgs(int argc, char **argv)
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         
-        if (arg == "-n" && i + 1 < argc) {
+        if (arg == "-n" && i + 1 < argc || arg == "--bodies" && i + 1 < argc) {
             config.initialBodies = std::stoi(argv[++i]);
         }
         else if (arg == "-sort" && i + 1 < argc) {
             config.sortType = std::stoi(argv[++i]);
             config.useSFC = (config.sortType > 0); // Enable SFC if using Hilbert or Morton
         }
-        else if (arg == "-steps" && i + 1 < argc) {
+        else if (arg == "-steps" && i + 1 < argc || arg == "--iterations" && i + 1 < argc) {
             config.numSteps = std::stoi(argv[++i]);
         }
         else if (arg == "-mdist" && i + 1 < argc) {
             config.massDistribution = std::stoi(argv[++i]);
         }
-        else if (arg == "-alg" && i + 1 < argc) {
+        else if (arg == "-alg" && i + 1 < argc || arg == "--method" && i + 1 < argc) {
             config.algorithm = std::stoi(argv[++i]);
         }
         else if (arg == "-theta" && i + 1 < argc) {
@@ -106,6 +112,30 @@ SimulationConfig parseArgs(int argc, char **argv)
         else if (arg == "-bs" && i + 1 < argc) {
             config.blockSize = std::stoi(argv[++i]);
         }
+        else if (arg == "--headless") {
+            config.headless = true;
+            config.visualization = false; // Headless mode disables visualization
+        }
+        else if (arg == "--report-metrics") {
+            config.reportMetrics = true;
+        }
+        else if (arg == "--use-sfc" && i + 1 < argc) {
+            config.useSFC = (std::string(argv[++i]) == "true" || std::string(argv[i]) == "1");
+            if (config.useSFC) {
+                // Default to Morton curve if SFC is enabled but no specific curve is set
+                if (config.sortType == 0) config.sortType = 2; // Set to Morton
+            }
+        }
+        else if (arg == "--seed" && i + 1 < argc) {
+            config.randomSeed = std::stoul(argv[++i]);
+        }
+        else if (arg == "--dynamic-reordering" && i + 1 < argc) {
+            std::string val = argv[++i];
+            config.dynamicReordering = (val == "true" || val == "1");
+        } 
+        else if (arg == "--metrics-window" && i + 1 < argc) {
+            config.metricsWindowSize = std::stoi(argv[++i]);
+        }
         else if (arg == "-verbose") {
             config.verbose = true;
         }
@@ -113,18 +143,24 @@ SimulationConfig parseArgs(int argc, char **argv)
             std::cout << "N-Body Simulation Usage:\n"
                       << "  ./prog [options]\n"
                       << "Options:\n"
-                      << "  -n <particles>      : Number of particles (default: 1024)\n"
-                      << "  -sort <type>        : Space-filling curve type (0: none, 1: hilbert, 2: morton) (default: 0)\n"
-                      << "  -steps <steps>      : Number of simulation steps (default: 1000)\n"
-                      << "  -mdist <type>       : Mass distribution (0: uniform, 1: normal) (default: 0)\n"
-                      << "  -alg <algorithm>    : Algorithm (0: cpu-direct-sum, 1: cpu-barnes, 2: gpu-direct-sum, 3: gpu-barnes-hut) (default: 0)\n"
-                      << "  -theta <float>      : Barnes-Hut theta parameter (default: 0.5)\n"
-                      << "  -visual <0|1>       : Enable visualization (0: off, 1: on) (default: 1)\n"
-                      << "  -energy <filename>  : Output energy data to file\n"
-                      << "  -nt <threads>       : Number of threads for CPU algorithms (default: 1)\n"
-                      << "  -bs <blocksize>     : Block size for GPU algorithms (default: 256)\n"
-                      << "  -verbose            : Enable verbose output\n"
-                      << "  -help, --help, -h   : Show this help message\n";
+                      << "  -n, --bodies <particles>     : Number of particles (default: 1024)\n"
+                      << "  -sort <type>                 : Space-filling curve type (0: none, 1: hilbert, 2: morton) (default: 0)\n"
+                      << "  -steps, --iterations <steps> : Number of simulation steps (default: 1000)\n"
+                      << "  -mdist <type>                : Mass distribution (0: uniform, 1: normal) (default: 0)\n"
+                      << "  -alg, --method <algorithm>   : Algorithm (0: cpu-direct-sum, 1: cpu-barnes, 2: gpu-direct-sum, 3: gpu-barnes-hut) (default: 0)\n"
+                      << "  -theta <float>               : Barnes-Hut theta parameter (default: 0.5)\n"
+                      << "  -visual <0|1>                : Enable visualization (0: off, 1: on) (default: 1)\n"
+                      << "  -energy <filename>           : Output energy data to file\n"
+                      << "  -nt <threads>                : Number of threads for CPU algorithms (default: 1)\n"
+                      << "  -bs <blocksize>              : Block size for GPU algorithms (default: 256)\n"
+                      << "  --headless                   : Run without visualization or UI\n"
+                      << "  --report-metrics             : Report detailed performance metrics at the end\n"
+                      << "  --use-sfc <true|false>       : Enable/disable space-filling curve ordering\n"
+                      << "  --dynamic-reordering <true|false> : Enable/disable dynamic reordering for SFC Barnes-Hut\n"
+                      << "  --metrics-window <size>      : Window size for dynamic reordering metrics (default: 10)\n"
+                      << "  --seed <number>              : Random seed for reproducible simulations\n"
+                      << "  -verbose                     : Enable verbose output\n"
+                      << "  -help, --help, -h            : Show this help message\n";
             exit(0);
         }
     }
@@ -138,9 +174,15 @@ SimulationConfig parseArgs(int argc, char **argv)
                   << "  Algorithm: " << config.algorithm << "\n"
                   << "  Theta: " << config.theta << "\n"
                   << "  Visualization: " << (config.visualization ? "On" : "Off") << "\n"
+                  << "  Headless: " << (config.headless ? "Yes" : "No") << "\n"
+                  << "  Report Metrics: " << (config.reportMetrics ? "Yes" : "No") << "\n"
+                  << "  SFC Enabled: " << (config.useSFC ? "Yes" : "No") << "\n"
+                  << "  Dynamic Reordering: " << (config.dynamicReordering ? "Yes" : "No") << "\n"
+                  << "  Metrics Window Size: " << config.metricsWindowSize << "\n"
                   << "  Energy Output: " << (config.energyOutput.empty() ? "None" : config.energyOutput) << "\n"
                   << "  Threads: " << config.numThreads << "\n"
-                  << "  Block Size: " << config.blockSize << "\n";
+                  << "  Block Size: " << config.blockSize << "\n"
+                  << "  Random Seed: " << config.randomSeed << "\n";
     }
 
     return config;
@@ -198,7 +240,6 @@ GLFWwindow *initializeGLFW(const SimulationConfig &config)
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-    glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_NATIVE_CONTEXT_API);
 
     // Get primary monitor and video mode
     GLFWmonitor *monitor = glfwGetPrimaryMonitor();
@@ -206,23 +247,30 @@ GLFWwindow *initializeGLFW(const SimulationConfig &config)
 
     // Create window
     GLFWwindow *window = nullptr;
+
+    int windowWidth = 1280;
+    int windowHeight = 720;
+
     if (config.fullscreen)
     {
-        window = glfwCreateWindow(
-            mode->width,
-            mode->height,
-            "N-Body Simulation",
-            monitor, // Fullscreen mode
-            nullptr);
+        // If fullscreen, get the primary monitor resolution
+        GLFWmonitor *primaryMonitor = glfwGetPrimaryMonitor();
+        const GLFWvidmode *mode = glfwGetVideoMode(primaryMonitor);
+
+        windowWidth = mode->width;
+        windowHeight = mode->height;
+
+        // For windowed fullscreen (borderless)
+        glfwWindowHint(GLFW_RED_BITS, mode->redBits);
+        glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
+        glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
+        glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
+
+        window = glfwCreateWindow(windowWidth, windowHeight, "N-Body Simulation", primaryMonitor, nullptr);
     }
     else
     {
-        window = glfwCreateWindow(
-            1280,
-            720,
-            "N-Body Simulation",
-            nullptr, // Windowed mode
-            nullptr);
+        window = glfwCreateWindow(windowWidth, windowHeight, "N-Body Simulation", nullptr, nullptr);
     }
 
     if (!window)
@@ -234,14 +282,17 @@ GLFWwindow *initializeGLFW(const SimulationConfig &config)
 
     // Make the window's context current
     glfwMakeContextCurrent(window);
-    glfwSwapInterval(1); // Enable vsync
 
+    // Set up callbacks
     glfwSetKeyCallback(window, key_callback);
+
+    // Enable vsync
+    glfwSwapInterval(1);
 
     return window;
 }
 
-// Initialize GLAD for OpenGL function loading
+// Initialize GLAD
 bool initializeGLAD()
 {
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
@@ -257,7 +308,7 @@ bool initializeGLAD()
     return true;
 }
 
-// Setup ImGui context and style
+// Setup ImGui
 void setupImGui(GLFWwindow *window)
 {
     IMGUI_CHECKVERSION();
@@ -276,29 +327,27 @@ void setupImGui(GLFWwindow *window)
 // Main render loop
 void renderLoop(GLFWwindow *window, SimulationState &simulationState, SimulationThread &simThread, OpenGLRenderer &renderer, SimulationUIManager &uiManager)
 {
-    int frameCounter = 0;
-    const int OCTREE_UPDATE_FREQ = 5; // Actualizar visualización del octree cada N frames
-
     while (!glfwWindowShouldClose(window) && simulationState.running.load())
     {
         // Poll and handle events
         glfwPollEvents();
 
-        // Render bodies if available
-        {
-            std::lock_guard<std::mutex> lock(simulationState.mtx);
-            if (simulationState.sharedBodies && simulationState.currentBodiesCount > 0)
-            {
-                renderer.updateBodies(
-                    simulationState.sharedBodies,
-                    simulationState.currentBodiesCount);
-            }
-        }
+        // Clear the screen with a dark blue background to make particles visible
+        glClearColor(0.05f, 0.05f, 0.1f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         // Get window dimensions
         int width, height;
         glfwGetFramebufferSize(window, &width, &height);
         float aspectRatio = static_cast<float>(width) / static_cast<float>(height);
+
+        // Update renderer with latest body data if available
+        {
+            std::lock_guard<std::mutex> lock(simulationState.mtx);
+            if (simulationState.sharedBodies != nullptr && simulationState.currentBodiesCount > 0) {
+                renderer.updateBodies(simulationState.sharedBodies, simulationState.currentBodiesCount);
+            }
+        }
 
         // Render bodies and octree
         renderer.render(aspectRatio);
@@ -307,8 +356,46 @@ void renderLoop(GLFWwindow *window, SimulationState &simulationState, Simulation
         uiManager.renderUI(window);
 
         // Swap front and back buffers
-        glfwSwapBuffers(window);
+        glfwSwapBuffers(window); 
     }
+}
+
+// Function to collect and report metrics
+void reportMetrics(SimulationData &simData, double totalSimTime, int iterations)
+{
+    if (!simData.valid || !simData.simulation) {
+        std::cout << "No valid simulation data available for metrics reporting" << std::endl;
+        return;
+    }
+    
+    // Basic metrics
+    std::cout << "total_time_ms: " << totalSimTime << std::endl;
+    std::cout << "iterations: " << iterations << std::endl;
+    std::cout << "avg_time_per_iteration_ms: " << (totalSimTime / iterations) << std::endl;
+    
+    // Simulation-specific metrics
+    SimulationMetrics metrics = simData.simulation->getMetrics();
+    
+    // Common metrics
+    std::cout << "force_time_ms: " << metrics.forceTimeMs << std::endl;
+    std::cout << "total_update_time_ms: " << metrics.totalTimeMs << std::endl;
+    
+    // Barnes-Hut specific metrics
+    if (metrics.bboxTimeMs > 0) {
+        std::cout << "bbox_time_ms: " << metrics.bboxTimeMs << std::endl;
+    }
+    if (metrics.resetTimeMs > 0) {
+        std::cout << "reset_time_ms: " << metrics.resetTimeMs << std::endl;
+    }
+    
+    // Energy metrics
+    double kineticEnergy = simData.simulation->getKineticEnergy();
+    double potentialEnergy = simData.simulation->getPotentialEnergy();
+    double totalEnergy = kineticEnergy + potentialEnergy;
+    
+    std::cout << "kinetic_energy: " << kineticEnergy << std::endl;
+    std::cout << "potential_energy: " << potentialEnergy << std::endl;
+    std::cout << "total_energy: " << totalEnergy << std::endl;
 }
 
 int main(int argc, char **argv)
@@ -320,23 +407,8 @@ int main(int argc, char **argv)
         // Parse command-line arguments
         SimulationConfig config = parseArgs(argc, argv);
 
-        // Initialize GLFW and create window
-        GLFWwindow *window = initializeGLFW(config);
-        if (!window)
-            return -1;
-
-        // Initialize GLAD
-        if (!initializeGLAD())
-            return -1;
-
-        // Configure OpenGL
-        glEnable(GL_DEPTH_TEST);
-        glEnable(GL_PROGRAM_POINT_SIZE);
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-        // Setup ImGui
-        setupImGui(window);
+        // Store start time for total runtime calculation
+        auto startTime = std::chrono::high_resolution_clock::now();
 
         // Create simulation state and apply all command-line parameters
         SimulationState simulationState;
@@ -344,6 +416,7 @@ int main(int argc, char **argv)
         // Basic parameters
         simulationState.numBodies.store(config.initialBodies);
         simulationState.useSFC.store(config.useSFC);
+        simulationState.randomSeed.store(config.randomSeed);
         
         // Set sorting method based on command-line parameter
         if (config.sortType > 0) {
@@ -370,10 +443,27 @@ int main(int argc, char **argv)
             case 3: // GPU Barnes-Hut
                 simulationState.simulationMethod.store(SimulationMethod::GPU_BARNES_HUT);
                 break;
+            case 4: // CPU SFC direct sum
+                simulationState.simulationMethod.store(SimulationMethod::CPU_SFC_DIRECT_SUM);
+                simulationState.useSFC.store(true);
+                break;
+            case 5: // CPU SFC Barnes-Hut
+                simulationState.simulationMethod.store(SimulationMethod::CPU_SFC_BARNES_HUT);
+                simulationState.useSFC.store(true);
+                break;
+            case 6: // GPU SFC direct sum
+                simulationState.simulationMethod.store(SimulationMethod::GPU_SFC_DIRECT_SUM);
+                simulationState.useSFC.store(true);
+                break;
+            case 7: // GPU SFC Barnes-Hut
+                simulationState.simulationMethod.store(SimulationMethod::GPU_SFC_BARNES_HUT);
+                simulationState.useSFC.store(true);
+                break;
         }
         
         // Set the Barnes-Hut theta parameter if applicable
-        if (config.algorithm == 1 || config.algorithm == 3) {
+        if (config.algorithm == 1 || config.algorithm == 3 || 
+            config.algorithm == 5 || config.algorithm == 7) {
             // Set the global theta parameter
             g_theta = config.theta;
             logMessage("Using Barnes-Hut with theta: " + std::to_string(g_theta));
@@ -388,20 +478,69 @@ int main(int argc, char **argv)
         
         // Set thread count for CPU implementations
         simulationState.openMPThreads.store(config.numThreads);
-        simulationState.useOpenMP.store(config.numThreads > 1);
-        
+
+        // Always enable OpenMP for CPU methods, defaulting to true
+        bool isCpuMethod = (config.algorithm == 0 || config.algorithm == 1 || 
+                            config.algorithm == 4 || config.algorithm == 5);
+        simulationState.useOpenMP.store(isCpuMethod || config.numThreads > 1);
+
+        // Log OpenMP configuration
+        if (simulationState.useOpenMP.load()) {
+            logMessage("OpenMP enabled with " + std::to_string(config.numThreads) + " threads");
+        } else {
+            logMessage("OpenMP disabled");
+        }
+
         // Initialize variables for octree visualization
-        simulationState.showOctree = (config.algorithm == 1 || config.algorithm == 3); // Show octree for Barnes-Hut
+        simulationState.showOctree = 
+            (config.algorithm == 1 || config.algorithm == 3 || 
+             config.algorithm == 5 || config.algorithm == 7); // Show octree for Barnes-Hut
         simulationState.octreeMaxDepth = 3;
         simulationState.octreeOpacity = 0.5f;
         simulationState.octreeColorByMass = true;
 
-        // Create OpenGL renderer
-        OpenGLRenderer renderer(simulationState);
-        renderer.init();
+        // Set the dynamic reordering and metrics window size options for Barnes-Hut SFC methods
+        if (config.algorithm == 5 || config.algorithm == 7) {
+            simulationState.dynamicReordering.store(config.dynamicReordering);
+            simulationState.metricsWindowSize.store(config.metricsWindowSize);
+            
+            if (config.verbose) {
+                logMessage("Using " + std::string(config.dynamicReordering ? "dynamic" : "static") + 
+                          " reordering with metrics window size " + std::to_string(config.metricsWindowSize));
+            }
+        }
 
-        // Create UI manager
-        SimulationUIManager uiManager(simulationState, renderer);
+        GLFWwindow *window = nullptr;
+        OpenGLRenderer *renderer = nullptr;
+        SimulationUIManager *uiManager = nullptr;
+
+        // Only initialize visualization if not in headless mode
+        if (!config.headless) {
+            // Initialize GLFW and create window
+            window = initializeGLFW(config);
+            if (!window)
+                return -1;
+
+            // Initialize GLAD
+            if (!initializeGLAD())
+                return -1;
+
+            // Configure OpenGL
+            glEnable(GL_DEPTH_TEST);
+            glEnable(GL_PROGRAM_POINT_SIZE);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+            // Setup ImGui
+            setupImGui(window);
+
+            // Create OpenGL renderer
+            renderer = new OpenGLRenderer(simulationState);
+            renderer->init();
+
+            // Create UI manager
+            uiManager = new SimulationUIManager(simulationState, *renderer);
+        }
 
         SimulationThread simulationThread(&simulationState);
         simulationThread.start();
@@ -423,8 +562,8 @@ int main(int argc, char **argv)
         }
 
         // If visualization is enabled, run the render loop
-        if (config.visualization) {
-            renderLoop(window, simulationState, simulationThread, renderer, uiManager);
+        if (config.visualization && window && renderer && uiManager) {
+            renderLoop(window, simulationState, simulationThread, *renderer, *uiManager);
         }
         // Otherwise, run the simulation for the specified number of steps
         else {
@@ -455,8 +594,10 @@ int main(int argc, char **argv)
                 
                 // Print progress every 10% of steps
                 if (step % (config.numSteps / 10) == 0 || step == config.numSteps - 1) {
-                    logMessage("Simulation progress: " + std::to_string(step + 1) + "/" + 
-                              std::to_string(config.numSteps) + " steps");
+                    if (!config.headless || config.verbose) {
+                        logMessage("Simulation progress: " + std::to_string(step + 1) + "/" + 
+                                std::to_string(config.numSteps) + " steps");
+                    }
                 }
                 
                 // Sleep briefly to avoid consuming 100% CPU while getting status
@@ -469,18 +610,37 @@ int main(int argc, char **argv)
             energyOutput.close();
         }
 
+        // Get final simulation data for reporting
+        SimulationData finalSimData = simulationThread.getSimulationData();
+        
+        // Calculate total simulation time
+        auto endTime = std::chrono::high_resolution_clock::now();
+        double totalSimTimeMs = std::chrono::duration<double, std::milli>(endTime - startTime).count();
+        
+        // Report metrics if requested
+        if (config.reportMetrics) {
+            reportMetrics(finalSimData, totalSimTimeMs, config.numSteps);
+        }
+
         // Cleanup
         simulationState.running.store(false);
         simulationThread.join();
 
-        // Shutdown ImGui
-        ImGui_ImplOpenGL3_Shutdown();
-        ImGui_ImplGlfw_Shutdown();
-        ImGui::DestroyContext();
+        // Clean up visualization resources
+        if (!config.headless) {
+            // Shutdown ImGui
+            ImGui_ImplOpenGL3_Shutdown();
+            ImGui_ImplGlfw_Shutdown();
+            ImGui::DestroyContext();
 
-        // Terminate GLFW
-        glfwDestroyWindow(window);
-        glfwTerminate();
+            // Cleanup renderer and UI manager
+            delete uiManager;
+            delete renderer;
+
+            // Terminate GLFW
+            glfwDestroyWindow(window);
+            glfwTerminate();
+        }
 
         return 0;
     }

@@ -497,95 +497,51 @@ void SFCBarnesHut::computeForces()
 void SFCBarnesHut::update()
 {
     checkInitialization();
-
-    // Start timing the total update
+    
     CudaTimer timer(metrics.totalTimeMs);
     
-    // Variables to track timing for the dynamic reordering strategy
-    float reorderTime = 0.0f;
-    float simulationTime = 0.0f;
-
-    if (useSFC)
-    {
-        bool shouldReorder = false;
-        
-        if (useDynamicReordering)
-        {
-            // Use the dynamic strategy to determine if reordering is needed
-            shouldReorder = dynamicReorderStrategy.shouldReorder(
-                metrics.totalTimeMs, // Last simulation time
-                (orderingMode == SFCOrderingMode::PARTICLES) ? metrics.reorderTimeMs : 0.0f // Last reorder time
-            );
-        }
-        else
-        {
-            // Traditional fixed-frequency approach
-            iterationCounter++;
-            shouldReorder = (iterationCounter >= reorderFrequency || iterationCounter == 1);
+    // Apply SFC ordering to bodies every reorderFrequency iterations
+    if (useSFC) {
+        // Reset counter when we reach the reorder frequency
+        if (iterationCounter >= reorderFrequency) {
+            // If using dynamic reordering, determine if we need to reorder
+            bool shouldReorder = true;
+            
+            if (useDynamicReordering) {
+                // Check the reordering strategy to see if we should reorder
+                shouldReorder = dynamicReorderStrategy.shouldReorder();
+            }
+            
             if (shouldReorder) {
-                iterationCounter = 0;
-            }
-        }
-
-        if (shouldReorder)
-        {
-            // Measure reordering time if using particles ordering
-            if (orderingMode == SFCOrderingMode::PARTICLES)
-            {
-                CudaTimer reorderTimer(metrics.reorderTimeMs);
                 orderBodiesBySFC();
-                reorderTime = metrics.reorderTimeMs;
+                
+                // If using dynamic reordering, update metrics
+                if (useDynamicReordering) {
+                    // Record timing for the reordering operation
+                    dynamicReorderStrategy.updateMetrics(metrics.reorderTimeMs);
+                }
             }
+            
+            // Reset the counter
+            iterationCounter = 0;
+        }
+        else {
+            iterationCounter++;
         }
     }
-
-    // Time the main simulation steps
-    {
-        CudaTimer simTimer(metrics.simTimeMs); // Add this to your metrics structure
-        
-        resetOctree();
-        constructOctree();
-        
-        // Order octants if needed
-        if (useSFC && orderingMode == SFCOrderingMode::OCTANTS)
-        {
-            CudaTimer reorderTimer(metrics.reorderTimeMs);
-            orderOctantsBySFC();
-            reorderTime = metrics.reorderTimeMs;
-        }
-        
-        computeForces();
-        
-        simulationTime = metrics.simTimeMs;
-    }
-
+    
+    // Standard Barnes-Hut update steps
+    resetOctree();
+    computeBoundingBox();
+    constructOctree();
+    computeForces();
+    
     CHECK_LAST_CUDA_ERROR();
 }
 
-// void SFCBarnesHut::update()
-// {
-//     checkInitialization();
-
-//     CudaTimer timer(metrics.totalTimeMs);
-
-//     if (useSFC)
-//     {
-//         iterationCounter++;
-
-//         if (iterationCounter >= reorderFrequency || iterationCounter == 1)
-//         {
-//             iterationCounter = 0;
-
-//             if (orderingMode == SFCOrderingMode::PARTICLES)
-//             {
-//                 orderBodiesBySFC();
-//             }
-//         }
-//     }
-
-//     resetOctree();
-//     constructOctree();
-//     computeForces();
-
-//     CHECK_LAST_CUDA_ERROR();
-// }
+// Add a setter for the metrics window size
+void SFCBarnesHut::setMetricsWindowSize(int windowSize) {
+    if (windowSize > 0) {
+        dynamicReorderStrategy.setWindowSize(windowSize);
+    }
+}

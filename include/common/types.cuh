@@ -163,6 +163,7 @@ struct SimulationMetrics
     float totalTimeMs;
     float reorderTimeMs;
     float simTimeMs;
+    float sortTimeMs;
 
     SimulationMetrics() : resetTimeMs(0.0f),
                           bboxTimeMs(0.0f),
@@ -170,6 +171,7 @@ struct SimulationMetrics
                           forceTimeMs(0.0f),
                           reorderTimeMs(0.0f),
                           simTimeMs(0.0f),
+                          sortTimeMs(0.0f),
                           totalTimeMs(0.0f) {}
 };
 

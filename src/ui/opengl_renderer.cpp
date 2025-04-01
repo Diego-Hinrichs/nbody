@@ -175,6 +175,29 @@ void OpenGLRenderer::setupBuffers()
     // Create VAO and VBO for particles
     glGenVertexArrays(1, &VAO_);
     glGenBuffers(1, &VBO_);
+    
+    // Initialize buffers with empty data to establish the layout
+    glBindVertexArray(VAO_);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO_);
+    
+    // Allocate some initial memory (will be resized as needed)
+    glBufferData(GL_ARRAY_BUFFER, 1024 * sizeof(float) * 4, nullptr, GL_DYNAMIC_DRAW);
+    
+    // Setup vertex attribute pointers
+    // Position attribute (3 floats)
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    
+    // Mass attribute (1 float)
+    glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+    
+    // Unbind buffers
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+    
+    // Initialize particle size
+    particleSize = 2.0f;
 }
 
 void OpenGLRenderer::init()

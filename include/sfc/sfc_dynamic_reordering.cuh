@@ -135,7 +135,7 @@ public:
     }
 
     // Check if reordering is needed based on current metrics
-    bool shouldReorder(double lastSimTime, double lastReorderTime = 0.0)
+    bool shouldReorder(double lastSimTime = 0.0, double lastReorderTime = 0.0)
     {
         iterationsSinceReorder++;
 
@@ -161,6 +161,21 @@ public:
         }
 
         return shouldReorder;
+    }
+
+    // Public method for updating metrics with just sort time
+    void updateMetrics(double sortTime)
+    {
+        // Call the internal method with proper defaults
+        updateMetrics(sortTime, 0.0);
+    }
+
+    // Set the window size for metrics tracking
+    void setWindowSize(int windowSize)
+    {
+        if (windowSize > 0) {
+            metricsWindowSize = windowSize;
+        }
     }
 
     // Get the current optimal frequency
