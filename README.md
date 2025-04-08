@@ -20,3 +20,16 @@
   -bs <block-size>
   ```
   
+# Benchmark
+
+```bash
+srun -p rtx --gpus=1 --container-workdir=/home/dhinrichs/tesis/nbody --container-name=cuda cmake -S . -B build -DGLFW_BUILD_X11=OFF -DGLFW_BUILD_WAYLAND=OFF
+```
+
+```bash
+srun -p rtx --gpus=1 --container-workdir=/home/dhinrichs/tesis/nbody --container-name=cuda cmake --build build
+```
+
+```bash
+srun -p rtx --gpus=1 --container-workdir=/home/dhinrichs/tesis/nbody --container-name=cuda ./build/BarnesHutSimulation --benchmark
+```

@@ -1,4 +1,9 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.20)
+
+set(CMAKE_CUDA_HOST_COMPILER /usr/bin/gcc-13)
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -ccbin=/usr/bin/gcc-13")
+
+project(BarnesHutSimulation LANGUAGES C CXX CUDA)
 
 # Set C and C++ compilers explicitly if needed
 if(NOT DEFINED CMAKE_C_COMPILER)
@@ -14,10 +19,7 @@ enable_language(C)
 enable_language(CXX)
 enable_language(CUDA)
 
-project(BarnesHutSimulation LANGUAGES C CXX CUDA)
-
 # Set C++ standard
-set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Find system packages
