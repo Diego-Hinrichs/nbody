@@ -15,7 +15,7 @@ __global__ void SFCDirectSumForceKernel(Body *bodies, int *orderedIndices, bool 
     int tx = threadIdx.x;
 
     // Get the real body index when using SFC ordering
-    int realBodyIndex = (useSFC && orderedIndices != nullptr) ? orderedIndices[i] : i;
+    int realBodyIndex = (useSFC && orderedIndices != nullptr && i < nBodies) ? orderedIndices[i] : i;
 
     // Load data only if the index is valid
     Vector myPos = Vector(0, 0, 0);
@@ -23,6 +23,7 @@ __global__ void SFCDirectSumForceKernel(Body *bodies, int *orderedIndices, bool 
     Vector myAcc = Vector(0, 0, 0);
     double myMass = 0.0;
     bool isDynamic = false;
+    bool isValid = false;
 
     if (i < nBodies)
     {
@@ -30,6 +31,7 @@ __global__ void SFCDirectSumForceKernel(Body *bodies, int *orderedIndices, bool 
         myVel = bodies[realBodyIndex].velocity;
         myMass = bodies[realBodyIndex].mass;
         isDynamic = bodies[realBodyIndex].isDynamic;
+        isValid = true;
     }
 
     // Use block size as tile size for better memory access patterns
@@ -40,28 +42,24 @@ __global__ void SFCDirectSumForceKernel(Body *bodies, int *orderedIndices, bool 
     {
         // Load this tile to shared memory
         int idx = tile * tileSize + tx;
+        
+        // Inicializar memoria compartida a valores por defecto
+        sharedPos[tx] = Vector(0, 0, 0);
+        sharedMass[tx] = 0.0;
 
         // Only load valid data to shared memory
-        if (tx < tileSize)
-        { // Ensure we don't exceed array size
-            if (idx < nBodies)
-            {
-                // When using SFC ordering, get the real body index
-                int tileBodyIndex = (useSFC && orderedIndices != nullptr) ? orderedIndices[idx] : idx;
-                sharedPos[tx] = bodies[tileBodyIndex].position;
-                sharedMass[tx] = bodies[tileBodyIndex].mass;
-            }
-            else
-            {
-                sharedPos[tx] = Vector(0, 0, 0);
-                sharedMass[tx] = 0.0;
-            }
+        if (idx < nBodies)
+        {
+            // When using SFC ordering, get the real body index
+            int tileBodyIndex = (useSFC && orderedIndices != nullptr) ? orderedIndices[idx] : idx;
+            sharedPos[tx] = bodies[tileBodyIndex].position;
+            sharedMass[tx] = bodies[tileBodyIndex].mass;
         }
 
         __syncthreads();
 
         // Calculate force only for valid and dynamic bodies
-        if (i < nBodies && isDynamic)
+        if (isValid && isDynamic)
         {
             // Limit the loop to the real tile size
             int tileLimit = min(tileSize, nBodies - tile * tileSize);
@@ -70,8 +68,8 @@ __global__ void SFCDirectSumForceKernel(Body *bodies, int *orderedIndices, bool 
             {
                 int jBody = tile * tileSize + j;
 
-                // Avoid self-interaction
-                if (jBody != i)
+                // Avoid self-interaction and only consider bodies with mass
+                if (jBody != i && sharedMass[j] > 0.0)
                 {
                     // Distance vector
                     double rx = sharedPos[j].x - myPos.x;
@@ -80,11 +78,11 @@ __global__ void SFCDirectSumForceKernel(Body *bodies, int *orderedIndices, bool 
 
                     // Distance squared with softening
                     double distSqr = rx * rx + ry * ry + rz * rz + E * E;
-                    double dist = sqrt(distSqr);
-
-                    // Apply force only if above collision threshold
-                    if (dist >= COLLISION_TH)
+                    
+                    // Optimización: solo calcular sqrt si es necesario
+                    if (distSqr >= COLLISION_TH * COLLISION_TH)
                     {
+                        double dist = sqrt(distSqr);
                         double forceMag = (GRAVITY * myMass * sharedMass[j]) / (dist * distSqr);
 
                         // Accumulate acceleration
@@ -100,7 +98,7 @@ __global__ void SFCDirectSumForceKernel(Body *bodies, int *orderedIndices, bool 
     }
 
     // Update the body only if valid and dynamic
-    if (i < nBodies && isDynamic)
+    if (isValid && isDynamic)
     {
         // Save acceleration
         bodies[realBodyIndex].acceleration = myAcc;

@@ -32,14 +32,60 @@
 #include "../include/ui/opengl_renderer.hpp"
 #include "../include/ui/simulation_ui_manager.hpp"
 
-// Define the global variables
-double g_theta = 0.5; // Default theta value
-int g_blockSize = 256; // Default block size
+double g_theta = 0.5;
+int g_blockSize = 256;
 
 // NVIDIA GPU selection hint for Linux
 extern "C"
 {
     __attribute__((visibility("default"))) int NvOptimusEnablement = 1;
+}
+
+// Function to configure optimal CUDA parameters based on detected GPU
+void configureGPUParameters()
+{
+    int deviceCount = 0;
+    cudaGetDeviceCount(&deviceCount);
+    
+    if (deviceCount == 0) {
+        return;
+    }
+    
+    cudaDeviceProp deviceProp;
+    cudaGetDeviceProperties(&deviceProp, 0);
+    
+    std::string gpuName = deviceProp.name;
+    int computeCapability = deviceProp.major * 10 + deviceProp.minor;
+    int maxThreadsPerBlock = deviceProp.maxThreadsPerBlock;
+    int multiProcessorCount = deviceProp.multiProcessorCount;
+    
+    // Log the detected GPU information
+    std::cout << "Detected GPU: " << gpuName << std::endl;
+    std::cout << "Compute capability: " << deviceProp.major << "." << deviceProp.minor << std::endl;
+    std::cout << "Number of SMs: " << multiProcessorCount << std::endl;
+    
+    // Configure block size based on GPU architecture
+    // For most modern GPUs, multiples of 32 (warp size) are ideal
+    // RTX 40 series (Ada Lovelace) performs better with larger blocks
+    if (computeCapability >= 89) {  // RTX 40 series (Ada Lovelace - SM 8.9)
+        g_blockSize = 512;  // Larger blocks for Ada Lovelace
+    } 
+    else if (computeCapability >= 86) {  // RTX 30 series (Ampere - SM 8.6)
+        g_blockSize = 384;
+    }
+    else if (computeCapability >= 75) {  // RTX 20 series (Turing - SM 7.5)
+        g_blockSize = 256;
+    }
+    else {
+        // For older GPUs, stick with the default 256
+        g_blockSize = 256;
+    }
+    
+    // Ensure block size is within device limits and is a multiple of 32
+    g_blockSize = std::min(g_blockSize, maxThreadsPerBlock);
+    g_blockSize = (g_blockSize / 32) * 32;  // Round to multiple of warp size
+    
+    std::cout << "Configured block size: " << g_blockSize << std::endl;
 }
 
 // Logging function
@@ -194,7 +240,7 @@ SimulationState *g_simulationState = nullptr;
 // GLFW error callback
 void glfw_error_callback(int error, const char *description)
 {
-    logMessage("GLFW Error: " + std::string(description), true);
+    // logMessage("GLFW Error: " + std::string(description), true);
 }
 
 // OpenGL debug callback
@@ -231,7 +277,7 @@ GLFWwindow *initializeGLFW(const SimulationConfig &config)
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit())
     {
-        logMessage("Failed to initialize GLFW", true);
+        // logMessage("Failed to initialize GLFW", true);
         return nullptr;
     }
 
@@ -275,7 +321,6 @@ GLFWwindow *initializeGLFW(const SimulationConfig &config)
 
     if (!window)
     {
-        logMessage("Failed to create GLFW window", true);
         glfwTerminate();
         return nullptr;
     }
@@ -297,13 +342,8 @@ bool initializeGLAD()
 {
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
     {
-        logMessage("Failed to initialize GLAD", true);
         return false;
     }
-
-    logMessage("OpenGL Version: " + std::string((char *)glGetString(GL_VERSION)));
-    logMessage("GLSL Version: " + std::string((char *)glGetString(GL_SHADING_LANGUAGE_VERSION)));
-    logMessage("Renderer: " + std::string((char *)glGetString(GL_RENDERER)));
 
     return true;
 }
@@ -404,32 +444,24 @@ int main(int argc, char **argv)
     {
         std::cout << "Attempting to use dedicated GPU..." << std::endl;
         checkCudaAvailability();
-        // Parse command-line arguments
         SimulationConfig config = parseArgs(argc, argv);
 
-        // Store start time for total runtime calculation
         auto startTime = std::chrono::high_resolution_clock::now();
 
-        // Create simulation state and apply all command-line parameters
         SimulationState simulationState;
         
-        // Basic parameters
         simulationState.numBodies.store(config.initialBodies);
         simulationState.useSFC.store(config.useSFC);
         simulationState.randomSeed.store(config.randomSeed);
         
-        // Set sorting method based on command-line parameter
         if (config.sortType > 0) {
-            // Set the SFC curve type
             simulationState.sfcCurveType.store(config.sortType == 1 ? 
                 sfc::CurveType::HILBERT : sfc::CurveType::MORTON);
         }
         
-        // Set the distribution type
         simulationState.massDistribution.store(config.massDistribution == 0 ? 
             MassDistribution::UNIFORM : MassDistribution::NORMAL);
         
-        // Set the algorithm type
         switch (config.algorithm) {
             case 0: // CPU direct sum
                 simulationState.simulationMethod.store(SimulationMethod::CPU_DIRECT_SUM);
@@ -464,34 +496,23 @@ int main(int argc, char **argv)
         // Set the Barnes-Hut theta parameter if applicable
         if (config.algorithm == 1 || config.algorithm == 3 || 
             config.algorithm == 5 || config.algorithm == 7) {
-            // Set the global theta parameter
             g_theta = config.theta;
-            logMessage("Using Barnes-Hut with theta: " + std::to_string(g_theta));
-        } else {
-            // Reset to default for non-Barnes-Hut algorithms
             g_theta = 0.5; // Default theta value
         }
         
-        // Set the block size for GPU kernels
-        g_blockSize = config.blockSize;
-        logMessage("Using CUDA block size: " + std::to_string(g_blockSize));
-        
-        // Set thread count for CPU implementations
         simulationState.openMPThreads.store(config.numThreads);
 
-        // Always enable OpenMP for CPU methods, defaulting to true
         bool isCpuMethod = (config.algorithm == 0 || config.algorithm == 1 || 
                             config.algorithm == 4 || config.algorithm == 5);
         simulationState.useOpenMP.store(isCpuMethod || config.numThreads > 1);
 
-        // Log OpenMP configuration
-        if (simulationState.useOpenMP.load()) {
-            logMessage("OpenMP enabled with " + std::to_string(config.numThreads) + " threads");
-        } else {
-            logMessage("OpenMP disabled");
-        }
+        bool isGpuMethod = (config.algorithm == 2 || config.algorithm == 3 || 
+                           config.algorithm == 6 || config.algorithm == 7);
+        if (isGpuMethod) {
+            configureGPUParameters();
+            config.blockSize = g_blockSize;
+        } 
 
-        // Initialize variables for octree visualization
         simulationState.showOctree = 
             (config.algorithm == 1 || config.algorithm == 3 || 
              config.algorithm == 5 || config.algorithm == 7); // Show octree for Barnes-Hut
@@ -503,11 +524,6 @@ int main(int argc, char **argv)
         if (config.algorithm == 5 || config.algorithm == 7) {
             simulationState.dynamicReordering.store(config.dynamicReordering);
             simulationState.metricsWindowSize.store(config.metricsWindowSize);
-            
-            if (config.verbose) {
-                logMessage("Using " + std::string(config.dynamicReordering ? "dynamic" : "static") + 
-                          " reordering with metrics window size " + std::to_string(config.metricsWindowSize));
-            }
         }
 
         GLFWwindow *window = nullptr;
@@ -548,16 +564,11 @@ int main(int argc, char **argv)
         g_simulationState = &simulationState;
 
         // Main render loop
-        // Open energy output file if specified
         std::ofstream energyOutput;
         if (!config.energyOutput.empty()) {
             energyOutput.open(config.energyOutput);
             if (energyOutput.is_open()) {
-                logMessage("Energy output will be written to: " + config.energyOutput);
-                // Write header
                 energyOutput << "Step,Time,KineticEnergy,PotentialEnergy,TotalEnergy" << std::endl;
-            } else {
-                logMessage("Failed to open energy output file: " + config.energyOutput, true);
             }
         }
 
@@ -565,10 +576,8 @@ int main(int argc, char **argv)
         if (config.visualization && window && renderer && uiManager) {
             renderLoop(window, simulationState, simulationThread, *renderer, *uiManager);
         }
-        // Otherwise, run the simulation for the specified number of steps
+
         else {
-            logMessage("Running simulation without visualization for " + std::to_string(config.numSteps) + " steps");
-            
             // Wait a moment for the simulation to initialize
             std::this_thread::sleep_for(std::chrono::milliseconds(1000));
             
@@ -593,12 +602,12 @@ int main(int argc, char **argv)
                 }
                 
                 // Print progress every 10% of steps
-                if (step % (config.numSteps / 10) == 0 || step == config.numSteps - 1) {
-                    if (!config.headless || config.verbose) {
-                        logMessage("Simulation progress: " + std::to_string(step + 1) + "/" + 
-                                std::to_string(config.numSteps) + " steps");
-                    }
-                }
+                // if (step % (config.numSteps / 10) == 0 || step == config.numSteps - 1) {
+                //     if (!config.headless || config.verbose) {
+                //         logMessage("Simulation progress: " + std::to_string(step + 1) + "/" + 
+                //                 std::to_string(config.numSteps) + " steps");
+                //     }
+                // }
                 
                 // Sleep briefly to avoid consuming 100% CPU while getting status
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -646,7 +655,7 @@ int main(int argc, char **argv)
     }
     catch (const std::exception &e)
     {
-        logMessage("Fatal error: " + std::string(e.what()), true);
+        // logMessage("Fatal error: " + std::string(e.what()), true);
         return 1;
     }
 }
