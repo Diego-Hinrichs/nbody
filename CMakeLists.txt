@@ -37,6 +37,7 @@ file(GLOB SOURCES_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/simulation/implementations/cpu/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/simulation/base/*.cu
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ui/simulation_state.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/*.cpp
 )
 
 # Define the executable sources
@@ -58,6 +59,7 @@ set_target_properties(BarnesHutSimulation PROPERTIES
 # Include directories
 target_include_directories(BarnesHutSimulation PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/utils
     ${CMAKE_CURRENT_SOURCE_DIR}/include/simulation/base
     ${CMAKE_CURRENT_SOURCE_DIR}/include/simulation/implementations/cpu
     ${CMAKE_CURRENT_SOURCE_DIR}/include/simulation/implementations/gpu
