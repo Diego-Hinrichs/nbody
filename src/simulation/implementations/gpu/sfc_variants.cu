@@ -1,5 +1,5 @@
-#include "../../include/simulation/implementations/gpu/sfc_variants.cuh"
-#include "../../include/sfc/sfc_framework.cuh"
+#include "../../../../include/simulation/implementations/gpu/sfc_variants.cuh"
+#include "../../../../include/sfc/sfc_framework.cuh"
 #include <iostream>
 #include <algorithm>
 

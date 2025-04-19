@@ -71,7 +71,6 @@ struct SimulationState
 
     // Simulation parameters
     std::atomic<int> numBodies;
-    std::atomic<double> zoomFactor;
 
     // Thread synchronization
     std::mutex mtx;
@@ -81,27 +80,8 @@ struct SimulationState
     std::atomic<float> reorderTimeMs;         // Time spent on last reordering
     std::atomic<float> simTimeMs;             // Time spent on simulation excluding reordering
     
-    // Simulation parameters
-    double offsetX;
-    double offsetY;
-
-    // Visualization state
-    Body *sharedBodies;
-    int currentBodiesCount;
-    double fps;
+    // Performance tracking
     double lastIterationTime;
-
-    // UI state
-    bool showCommandMenu;
-    int selectedCommandIndex;
-    int selectedParticleOption;
-    char seedInputBuffer[16]; // Buffer for seed input text
-
-    // Octree visualization parameters
-    bool showOctree;        // Toggle para mostrar/ocultar octree
-    int octreeMaxDepth;     // Profundidad máxima a visualizar
-    float octreeOpacity;    // Opacidad de las líneas del octree
-    bool octreeColorByMass; // Colorear nodos según masa
 
     // Dynamic reordering settings
     std::atomic<bool> dynamicReordering;

@@ -6,10 +6,21 @@
 SimulationThread::SimulationThread(SimulationState *simulationState)
     : state(simulationState),
       simulation(nullptr),
-      frameCounter(0),
-      frameTimeAccum(0.0),
-      frameCount(0)
+      frameTimeAccum(0.0)
 {
+    if (!state) {
+        throw std::runtime_error("Null simulation state provided");
+    }
+
+    std::cout << "Initializing simulation thread with parameters:" << std::endl;
+    std::cout << "  Bodies: " << state->numBodies.load() << std::endl;
+    std::cout << "  Method: " << static_cast<int>(state->simulationMethod.load()) << std::endl;
+    std::cout << "  SFC Enabled: " << (state->useSFC.load() ? "Yes" : "No") << std::endl;
+    std::cout << "  OpenMP: " << (state->useOpenMP.load() ? "Yes" : "No") << std::endl;
+    if (state->useOpenMP.load()) {
+        std::cout << "  Threads: " << state->openMPThreads.load() << std::endl;
+    }
+
     // Initialize current parameters from state
     updateCurrentParameters();
 }
@@ -52,43 +63,45 @@ void SimulationThread::run()
 {
     try
     {
-        // Crear simulación inicial
+        // Initialize current parameters
+        updateCurrentParameters();
+
+        // Initialize simulation immediately
+        try
         {
-            std::lock_guard<std::mutex> lock(simulationMutex);
-            simulation = SimulationFactory::createFromState(*state);
-
-            if (!simulation)
+            std::cout << "Creating initial simulation..." << std::endl;
             {
-                std::cerr << "Failed to create simulation" << std::endl;
-                return;
+                std::lock_guard<std::mutex> lock(simulationMutex);
+                simulation = SimulationFactory::createFromState(*state);
+
+                if (!simulation)
+                {
+                    std::cerr << "Failed to create initial simulation" << std::endl;
+                    return;
+                }
+
+                // Setup the simulation
+                simulation->setup();
+                std::cout << "Initial simulation setup completed" << std::endl;
             }
-
-            // Setup initial conditions
-            simulation->setup();
         }
-
-        // Initialize performance tracking
-        lastTime = std::chrono::steady_clock::now();
+        catch (const std::exception &e)
+        {
+            std::cerr << "Exception during initial simulation setup: " << e.what() << std::endl;
+            return;
+        }
 
         // Main simulation loop
         while (state->running.load())
         {
             auto frameStart = std::chrono::steady_clock::now();
 
-            // If paused, wait and continue
-            if (state->isPaused.load())
-            {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                lastTime = std::chrono::steady_clock::now();
-                continue;
-            }
+            // Check if we need to restart the simulation
+            bool shouldRestart = checkForParameterChanges();
 
-            // Check if restart is needed
-            bool shouldRestart = state->restart.load() || checkForParameterChanges();
-
-            // Restart simulation if needed
             if (shouldRestart)
             {
+                std::cout << "Restarting simulation due to parameter changes..." << std::endl;
                 // Reset the seed change flag
                 state->seedWasChanged = false;
 
@@ -110,6 +123,7 @@ void SimulationThread::run()
 
                         // Setup the simulation
                         simulation->setup();
+                        std::cout << "Simulation restarted successfully" << std::endl;
                     }
                 }
                 catch (const std::exception &e)
@@ -119,10 +133,6 @@ void SimulationThread::run()
                 }
 
                 state->restart.store(false);
-
-                // Reset time and frame counter
-                lastTime = std::chrono::steady_clock::now();
-                frameCounter = 0;
             }
 
             // Update simulation
@@ -132,16 +142,6 @@ void SimulationThread::run()
                 {
                     simulation->update();
                 }
-            }
-
-            // Increment frame counter
-            frameCounter++;
-
-            // Update visualization data when needed
-            if (frameCounter >= VISUALIZATION_FREQUENCY)
-            {
-                frameCounter = 0;
-                updateVisualizationData();
             }
 
             // Calculate performance metrics
@@ -212,54 +212,10 @@ void SimulationThread::updateCurrentParameters()
     currentOpenMPThreads = state->openMPThreads.load();
 }
 
-void SimulationThread::updateVisualizationData()
-{
-    if (!simulation)
-        return;
-
-    // Copy data from GPU to CPU
-    simulation->copyBodiesFromDevice();
-
-    // Update shared bodies for rendering
-    try
-    {
-        std::lock_guard<std::mutex> lock(state->mtx);
-
-        // Cleanup old data
-        delete[] state->sharedBodies;
-        state->sharedBodies = nullptr;
-
-        // Allocate and copy new data
-        state->sharedBodies = new Body[currentNumBodies];
-        memcpy(state->sharedBodies, simulation->getBodies(), currentNumBodies * sizeof(Body));
-        state->currentBodiesCount = currentNumBodies;
-    }
-    catch (const std::exception &e)
-    {
-        std::cerr << "Exception during body data update: " << e.what() << std::endl;
-    }
-}
-
 void SimulationThread::updatePerformanceMetrics(double frameTime)
 {
-    // Track the simulation iteration time separately from FPS
+    // Track the simulation iteration time
     state->lastIterationTime = frameTime;
-
-    // Update FPS tracking based on visualization frequency
-    if (frameCounter == 0)
-    {
-        // We've just updated the visualization, so count this as a rendered frame
-        frameCount++;
-    }
-
-    auto now = std::chrono::steady_clock::now();
-    if (std::chrono::duration<double>(now - lastTime).count() >= 1.0)
-    {
-        // Update FPS every second - this now represents actual visualization updates
-        state->fps = frameCount / std::chrono::duration<double>(now - lastTime).count();
-        frameCount = 0;
-        lastTime = now;
-    }
 }
 
 SimulationData SimulationThread::getSimulationData()

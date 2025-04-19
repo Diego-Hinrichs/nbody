@@ -1,5 +1,5 @@
-#include "../../include/simulation/implementations/cpu/barnes_hut.hpp"
-#include "../../include/common/types.cuh"
+#include "../../../../include/simulation/implementations/cpu/barnes_hut.hpp"
+#include "../../../../include/common/types.cuh"
 #include <cmath>
 #include <iostream>
 #include <algorithm>

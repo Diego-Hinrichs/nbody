@@ -1,5 +1,5 @@
-#include "../../include/simulation/implementations/cpu/sfc_variants.hpp"
-#include "../../include/sfc/sfc_framework.cuh"
+#include "../../../../include/simulation/implementations/cpu/sfc_variants.hpp"
+#include "../../../../include/sfc/sfc_framework.cuh"
 #include <iostream>
 #include <limits>
 #include <algorithm>

@@ -7,13 +7,8 @@
 #include <fstream>
 #include <vector>
 #include <omp.h>
-
-#include <glad/glad.h>
-#include <GLFW/glfw3.h>
-#include <imgui.h>
-#include <imgui_impl_glfw.h>
-#include <imgui_impl_opengl3.h>
-#include <glm/glm.hpp>
+#include <iomanip>
+#include <sstream>
 
 #include "../include/common/constants.cuh"
 
@@ -29,24 +24,35 @@
 #include "../include/simulation/implementations/gpu/sfc_variants.cuh"
 
 #include "../include/ui/simulation_state.hpp"
-#include "../include/ui/opengl_renderer.hpp"
-#include "../include/ui/simulation_ui_manager.hpp"
 
 // Define the global variables
 double g_theta = 0.5;  // Default theta value
 int g_blockSize = 256; // Default block size
 
-// NVIDIA GPU selection hint for Linux
-extern "C"
-{
-    __attribute__((visibility("default"))) int NvOptimusEnablement = 1;
-}
+// Global variables for CSV management
+std::string globalCsvFilename;
+std::ofstream globalOutputFile;
 
-// Logging function
-void logMessage(const std::string &message, bool isError = false)
-{
-    std::ostream &stream = isError ? std::cerr : std::cout;
-    stream << "[" << (isError ? "ERROR" : "INFO") << "] " << message << std::endl;
+void initializeGlobalCsv() {
+    // Create a timestamp for the global output file
+    auto now = std::chrono::system_clock::now();
+    auto now_c = std::chrono::system_clock::to_time_t(now);
+    std::stringstream ss;
+    ss << "nbody_results_" << std::put_time(std::localtime(&now_c), "%Y%m%d_%H%M%S") << ".csv";
+    globalCsvFilename = ss.str();
+
+    // Open the global CSV file for writing
+    globalOutputFile.open(globalCsvFilename);
+    if (!globalOutputFile.is_open()) {
+        std::cerr << "Failed to open global CSV file for writing" << std::endl;
+        return;
+    }
+
+    // Write header
+    globalOutputFile << "type,simulation_id,algorithm,bodies,sort_type,use_sfc,theta,threads,block_size,dynamic_reordering,metrics_window,random_seed,mass_distribution,step,time_ms,kinetic_energy,potential_energy,total_energy,force_time,total_update_time,bbox_time,reset_time,octree_time,reorder_time,sort_time\n";
+    globalOutputFile.flush();
+    
+    std::cout << "Global CSV file initialized: " << globalCsvFilename << std::endl;
 }
 
 // Configuration structure
@@ -58,18 +64,18 @@ struct SimulationConfig
     int massDistribution = 0;               // 0: uniform, 1: normal
     int algorithm = 0;                      // 0: cpu-direct-sum, 1: cpu-barnes, 2: gpu-direct-sum, 3: gpu-barnes-hut
     float theta = 0.5f;                     // Barnes-Hut parameter
-    bool visualization = true;              // 0: off, 1: on
+    bool visualization = false;              // Always false in headless mode
     std::string energyOutput = "";          // Output file for energy data
     int numThreads = omp_get_max_threads(); // Default to max threads for CPU implementations
     int blockSize = 256;                    // Block size for GPU implementations
-    bool fullscreen = true;
-    bool useSFC = false; // Used for space-filling curve options
+    bool fullscreen = false;                // Not used in headless mode
+    bool useSFC = false;                    // Used for space-filling curve options
     bool verbose = false;
-    bool headless = false;           // Run without any UI or visualization
-    bool reportMetrics = false;      // Report detailed metrics at the end
-    unsigned int randomSeed = 12345; // Random seed for reproducibility
-    bool dynamicReordering = true;   // Use dynamic reordering for Barnes-Hut SFC
-    int metricsWindowSize = 10;      // Window size for dynamic reordering metrics
+    bool headless = true;                   // Always true in headless mode
+    bool reportMetrics = false;             // Report detailed metrics at the end
+    unsigned int randomSeed = 12345;        // Random seed for reproducibility
+    bool dynamicReordering = true;          // Use dynamic reordering for Barnes-Hut SFC
+    int metricsWindowSize = 10;             // Window size for dynamic reordering metrics
     bool benchmark = false;
 };
 
@@ -108,11 +114,6 @@ SimulationConfig parseArgs(int argc, char **argv)
         else if (arg == "-theta" && i + 1 < argc)
         {
             config.theta = std::stof(argv[++i]);
-        }
-        else if (arg == "-visual" && i + 1 < argc)
-        {
-            config.visualization = (std::stoi(argv[++i]) != 0);
-            config.fullscreen = config.visualization; // Only fullscreen if visualization is enabled
         }
         else if (arg == "-energy" && i + 1 < argc)
         {
@@ -177,7 +178,6 @@ SimulationConfig parseArgs(int argc, char **argv)
                       << "  -mdist <type>                : Mass distribution (0: uniform, 1: normal) (default: 0)\n"
                       << "  -alg, --method <algorithm>   : Algorithm (0: cpu-direct-sum, 1: cpu-barnes, 2: gpu-direct-sum, 3: gpu-barnes-hut) (default: 0)\n"
                       << "  -theta <float>               : Barnes-Hut theta parameter (default: 0.5)\n"
-                      << "  -visual <0|1>                : Enable visualization (0: off, 1: on) (default: 1)\n"
                       << "  -energy <filename>           : Output energy data to file\n"
                       << "  -nt <threads>                : Number of threads for CPU algorithms (default: 1)\n"
                       << "  -bs <blocksize>              : Block size for GPU algorithms (default: 256)\n"
@@ -220,178 +220,7 @@ SimulationConfig parseArgs(int argc, char **argv)
 // Global simulation state for callbacks
 SimulationState *g_simulationState = nullptr;
 
-// GLFW error callback
-void glfw_error_callback(int error, const char *description)
-{
-    logMessage("GLFW Error: " + std::string(description), true);
-}
-
-// OpenGL debug callback
-void APIENTRY glDebugOutput(GLenum source, GLenum type, GLuint id, GLenum severity,
-                            GLsizei length, const GLchar *message, const void *userParam)
-{
-    // Ignore non-significant error/warning codes
-    if (id == 131169 || id == 131185 || id == 131218 || id == 131204)
-        return;
-
-    std::cout << "OpenGL Debug: " << message << std::endl;
-}
-
-// Keyboard callback function to handle ESC key to exit the simulation
-void key_callback(GLFWwindow *window, int key, int scancode, int action, int mods)
-{
-    // Check if escape key was pressed
-    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
-    {
-        // Set the window to close and stop the simulation
-        glfwSetWindowShouldClose(window, GLFW_TRUE);
-
-        // If we have access to the simulation state, also set running to false
-        if (g_simulationState != nullptr)
-        {
-            g_simulationState->running.store(false);
-        }
-    }
-}
-
-// Initialize GLFW and create window
-GLFWwindow *initializeGLFW(const SimulationConfig &config)
-{
-    glfwSetErrorCallback(glfw_error_callback);
-    if (!glfwInit())
-    {
-        logMessage("Failed to initialize GLFW", true);
-        return nullptr;
-    }
-
-    // OpenGL and window hints
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-
-    // Get primary monitor and video mode
-    GLFWmonitor *monitor = glfwGetPrimaryMonitor();
-    const GLFWvidmode *mode = glfwGetVideoMode(monitor);
-
-    // Create window
-    GLFWwindow *window = nullptr;
-
-    int windowWidth = 1280;
-    int windowHeight = 720;
-
-    if (config.fullscreen)
-    {
-        // If fullscreen, get the primary monitor resolution
-        GLFWmonitor *primaryMonitor = glfwGetPrimaryMonitor();
-        const GLFWvidmode *mode = glfwGetVideoMode(primaryMonitor);
-
-        windowWidth = mode->width;
-        windowHeight = mode->height;
-
-        // For windowed fullscreen (borderless)
-        glfwWindowHint(GLFW_RED_BITS, mode->redBits);
-        glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
-        glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
-        glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
-
-        window = glfwCreateWindow(windowWidth, windowHeight, "N-Body Simulation", primaryMonitor, nullptr);
-    }
-    else
-    {
-        window = glfwCreateWindow(windowWidth, windowHeight, "N-Body Simulation", nullptr, nullptr);
-    }
-
-    if (!window)
-    {
-        logMessage("Failed to create GLFW window", true);
-        glfwTerminate();
-        return nullptr;
-    }
-
-    // Make the window's context current
-    glfwMakeContextCurrent(window);
-
-    // Set up callbacks
-    glfwSetKeyCallback(window, key_callback);
-
-    // Enable vsync
-    glfwSwapInterval(1);
-
-    return window;
-}
-
-// Initialize GLAD
-bool initializeGLAD()
-{
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
-    {
-        logMessage("Failed to initialize GLAD", true);
-        return false;
-    }
-
-    logMessage("OpenGL Version: " + std::string((char *)glGetString(GL_VERSION)));
-    logMessage("GLSL Version: " + std::string((char *)glGetString(GL_SHADING_LANGUAGE_VERSION)));
-    logMessage("Renderer: " + std::string((char *)glGetString(GL_RENDERER)));
-
-    return true;
-}
-
-// Setup ImGui
-void setupImGui(GLFWwindow *window)
-{
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO &io = ImGui::GetIO();
-    (void)io;
-
-    // Setup Platform/Renderer bindings
-    ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 330");
-
-    // Setup Dear ImGui style
-    ImGui::StyleColorsDark();
-}
-
-// Main render loop
-void renderLoop(GLFWwindow *window, SimulationState &simulationState, SimulationThread &simThread, OpenGLRenderer &renderer, SimulationUIManager &uiManager)
-{
-    while (!glfwWindowShouldClose(window) && simulationState.running.load())
-    {
-        // Poll and handle events
-        glfwPollEvents();
-
-        // Clear the screen with a dark blue background to make particles visible
-        glClearColor(0.05f, 0.05f, 0.1f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-        // Get window dimensions
-        int width, height;
-        glfwGetFramebufferSize(window, &width, &height);
-        float aspectRatio = static_cast<float>(width) / static_cast<float>(height);
-
-        // Update renderer with latest body data if available
-        {
-            std::lock_guard<std::mutex> lock(simulationState.mtx);
-            if (simulationState.sharedBodies != nullptr && simulationState.currentBodiesCount > 0)
-            {
-                renderer.updateBodies(simulationState.sharedBodies, simulationState.currentBodiesCount);
-            }
-        }
-
-        // Render bodies and octree
-        renderer.render(aspectRatio);
-
-        // Render UI
-        uiManager.renderUI(window);
-
-        // Swap front and back buffers
-        glfwSwapBuffers(window);
-    }
-}
-
-// Function to collect and report metrics
-void reportMetrics(SimulationData &simData, double totalSimTime, int iterations)
+void reportMetrics(SimulationData &simData, double totalSimTime, int iterations, const std::string &simulationId = "")
 {
     if (!simData.valid || !simData.simulation)
     {
@@ -399,33 +228,45 @@ void reportMetrics(SimulationData &simData, double totalSimTime, int iterations)
         return;
     }
 
-    // Basic metrics
-    std::cout << "total_time_ms: " << totalSimTime << std::endl;
-    std::cout << "iterations: " << iterations << std::endl;
-    std::cout << "avg_time_per_iteration_ms: " << (totalSimTime / iterations) << std::endl;
-
-    // Simulation-specific metrics
+    // Get simulation metrics
     SimulationMetrics metrics = simData.simulation->getMetrics();
 
-    // Common metrics
-    std::cout << "force_time_ms: " << metrics.forceTimeMs << std::endl;
-    std::cout << "total_update_time_ms: " << metrics.totalTimeMs << std::endl;
-
-    // Barnes-Hut specific metrics
-    if (metrics.bboxTimeMs > 0)
-    {
-        std::cout << "bbox_time_ms: " << metrics.bboxTimeMs << std::endl;
-    }
-    if (metrics.resetTimeMs > 0)
-    {
-        std::cout << "reset_time_ms: " << metrics.resetTimeMs << std::endl;
+    // Make sure the global file is open
+    if (!globalOutputFile.is_open()) {
+        initializeGlobalCsv();
     }
 
+    // Write metrics data to the global CSV
+    globalOutputFile << "metrics," << simulationId << ",NA," << simData.simulation->getNumBodies() << ",NA,NA,NA,NA,NA,NA,NA,NA,NA,"
+                    << "summary," << totalSimTime << ",NA,NA,NA,"
+                    << metrics.forceTimeMs << "," << metrics.totalTimeMs << "," 
+                    << metrics.bboxTimeMs << "," << metrics.resetTimeMs << "," 
+                    << metrics.octreeTimeMs << "," << metrics.reorderTimeMs << "," 
+                    << metrics.sortTimeMs << "\n";
+    
     // Energy metrics
     double kineticEnergy = simData.simulation->getKineticEnergy();
     double potentialEnergy = simData.simulation->getPotentialEnergy();
     double totalEnergy = kineticEnergy + potentialEnergy;
 
+    globalOutputFile << "energy," << simulationId << ",NA," << simData.simulation->getNumBodies() << ",NA,NA,NA,NA,NA,NA,NA,NA,NA,"
+                    << "summary," << totalSimTime << "," << kineticEnergy << "," 
+                    << potentialEnergy << "," << totalEnergy << ",NA,NA,NA,NA,NA,NA,NA\n";
+    
+    globalOutputFile.flush();
+
+    // Also print to console for immediate feedback
+    std::cout << "Metrics saved to global CSV: " << globalCsvFilename << std::endl;
+    std::cout << "total_time_ms: " << totalSimTime << std::endl;
+    std::cout << "iterations: " << iterations << std::endl;
+    std::cout << "avg_time_per_iteration_ms: " << (totalSimTime / iterations) << std::endl;
+    std::cout << "force_time_ms: " << metrics.forceTimeMs << std::endl;
+    std::cout << "total_update_time_ms: " << metrics.totalTimeMs << std::endl;
+    if (metrics.bboxTimeMs > 0) std::cout << "bbox_time_ms: " << metrics.bboxTimeMs << std::endl;
+    if (metrics.resetTimeMs > 0) std::cout << "reset_time_ms: " << metrics.resetTimeMs << std::endl;
+    if (metrics.octreeTimeMs > 0) std::cout << "octree_time_ms: " << metrics.octreeTimeMs << std::endl;
+    if (metrics.reorderTimeMs > 0) std::cout << "reorder_time_ms: " << metrics.reorderTimeMs << std::endl;
+    if (metrics.sortTimeMs > 0) std::cout << "sort_time_ms: " << metrics.sortTimeMs << std::endl;
     std::cout << "kinetic_energy: " << kineticEnergy << std::endl;
     std::cout << "potential_energy: " << potentialEnergy << std::endl;
     std::cout << "total_energy: " << totalEnergy << std::endl;
@@ -435,161 +276,247 @@ int main(int argc, char **argv)
 {
     std::cout << "Attempting to use dedicated GPU..." << std::endl;
     checkCudaAvailability();
+    
     // Parse command-line arguments
     SimulationConfig config = parseArgs(argc, argv);
+    
     if (config.benchmark)
     {
-        std::vector<int> methods = {0, 1, 2, 3, 4, 5, 6, 7};
-        std::vector<int> bodyCounts = {1000, 5000, 10000, 50000};
-
+        std::cout << "Starting benchmark mode..." << std::endl;
+        
+        // Reduced number of steps for benchmarking
+        const int BENCHMARK_STEPS = 100;
+        
+        std::vector<int> methods = {0, 1, 2, 3};  // Reduced set of methods for testing
+        std::vector<int> bodyCounts = {1000, 5000, 10000};
+        
         for (int method : methods)
         {
-            bool useSFC = (method == 1 || method == 3 || method == 5 || method == 7);
+            std::cout << "\nTesting method " << method << std::endl;
+            bool useSFC = (method == 1 || method == 3);
+            
             for (int bodies : bodyCounts)
             {
+                std::cout << "\nTesting with " << bodies << " bodies" << std::endl;
+                
                 for (int i = 0; i < 5; ++i)
                 {
-                    // Crea una nueva configuración para cada ejecución
+                    std::cout << "\nRun " << (i + 1) << " of 5" << std::endl;
+                    
+                    // Create a new configuration for each run
                     SimulationConfig benchConfig = config;
                     benchConfig.algorithm = method;
                     benchConfig.initialBodies = bodies;
                     benchConfig.useSFC = useSFC;
-                    benchConfig.sortType = useSFC ? 2 : 0; // Morton por defecto
+                    benchConfig.sortType = useSFC ? 2 : 0; // Morton by default
                     benchConfig.visualization = false;
                     benchConfig.headless = true;
                     benchConfig.reportMetrics = true;
-                    benchConfig.numSteps = 10;
-
-                    std::cout << "Benchmark: method=" << method << " bodies=" << bodies << " run=" << (i + 1) << std::endl;
-
-                    // Ejecuta una simulación con esta configuración
-                    runSimulationOnce(benchConfig);
+                    benchConfig.numSteps = BENCHMARK_STEPS;
+                    
+                    try {
+                        std::cout << "Starting benchmark: method=" << method 
+                                 << " bodies=" << bodies 
+                                 << " run=" << (i + 1) << std::endl;
+                        
+                        runSimulationOnce(benchConfig);
+                        
+                        std::cout << "Benchmark completed successfully" << std::endl;
+                        
+                        // Add a small delay between runs
+                        std::this_thread::sleep_for(std::chrono::seconds(2));
+                    }
+                    catch (const std::exception& e) {
+                        std::cerr << "Error in benchmark run: " << e.what() << std::endl;
+                        continue;
+                    }
                 }
             }
         }
-        return 0;
+        
+        std::cout << "Benchmark completed." << std::endl;
     }
+    else {
+        // If not in benchmark mode, run a single simulation
+        runSimulationOnce(config);
+    }
+    
+    // Close the global CSV file if it's open
+    if (globalOutputFile.is_open()) {
+        std::cout << "Closing global CSV file: " << globalCsvFilename << std::endl;
+        globalOutputFile.close();
+    }
+    
+    return 0;
 }
 
 void runSimulationOnce(const SimulationConfig &config)
 {
+    std::cout << "Starting simulation with " << config.initialBodies << " bodies..." << std::endl;
+    
     auto startTime = std::chrono::high_resolution_clock::now();
 
     SimulationState simulationState;
 
+    // Set simulation parameters
     simulationState.numBodies.store(config.initialBodies);
     simulationState.useSFC.store(config.useSFC);
     simulationState.randomSeed.store(config.randomSeed);
+    simulationState.simulationMethod.store(static_cast<SimulationMethod>(config.algorithm));
+    simulationState.massDistribution.store(config.massDistribution == 0 ? MassDistribution::UNIFORM : MassDistribution::NORMAL);
+    simulationState.useOpenMP.store(config.numThreads > 1);
+    simulationState.openMPThreads.store(config.numThreads);
+    simulationState.dynamicReordering.store(config.dynamicReordering);
+    simulationState.metricsWindowSize.store(config.metricsWindowSize);
 
     if (config.sortType > 0)
     {
         simulationState.sfcCurveType.store(config.sortType == 1 ? sfc::CurveType::HILBERT : sfc::CurveType::MORTON);
     }
 
-    simulationState.massDistribution.store(config.massDistribution == 0 ? MassDistribution::UNIFORM : MassDistribution::NORMAL);
-
-    switch (config.algorithm)
-    {
-    case 0:
-        simulationState.simulationMethod.store(SimulationMethod::CPU_DIRECT_SUM);
-        break;
-    case 1:
-        simulationState.simulationMethod.store(SimulationMethod::CPU_BARNES_HUT);
-        break;
-    case 2:
-        simulationState.simulationMethod.store(SimulationMethod::GPU_DIRECT_SUM);
-        break;
-    case 3:
-        simulationState.simulationMethod.store(SimulationMethod::GPU_BARNES_HUT);
-        break;
-    case 4:
-        simulationState.simulationMethod.store(SimulationMethod::CPU_SFC_DIRECT_SUM);
-        simulationState.useSFC.store(true);
-        break;
-    case 5:
-        simulationState.simulationMethod.store(SimulationMethod::CPU_SFC_BARNES_HUT);
-        simulationState.useSFC.store(true);
-        break;
-    case 6:
-        simulationState.simulationMethod.store(SimulationMethod::GPU_SFC_DIRECT_SUM);
-        simulationState.useSFC.store(true);
-        break;
-    case 7:
-        simulationState.simulationMethod.store(SimulationMethod::GPU_SFC_BARNES_HUT);
-        simulationState.useSFC.store(true);
-        break;
+    // Make sure the global CSV file is initialized
+    if (!globalOutputFile.is_open()) {
+        initializeGlobalCsv();
     }
 
-    if (config.algorithm == 1 || config.algorithm == 3 || config.algorithm == 5 || config.algorithm == 7)
-    {
-        g_theta = config.theta;
-    }
-    else
-    {
-        g_theta = 0.5;
-    }
+    // Generate a unique simulation ID
+    auto now = std::chrono::system_clock::now();
+    auto now_c = std::chrono::system_clock::to_time_t(now);
+    std::stringstream ss;
+    ss << "sim_" << std::put_time(std::localtime(&now_c), "%Y%m%d_%H%M%S");
+    std::string simulationId = ss.str();
 
-    g_blockSize = config.blockSize;
-    simulationState.openMPThreads.store(config.numThreads);
+    std::cout << "Simulation ID: " << simulationId << std::endl;
 
-    bool isCpuMethod = (config.algorithm <= 1 || config.algorithm == 4 || config.algorithm == 5);
-    simulationState.useOpenMP.store(isCpuMethod || config.numThreads > 1);
-
-    simulationState.showOctree = (config.algorithm % 2 == 1); // Barnes-Hut métodos
-    simulationState.octreeMaxDepth = 3;
-    simulationState.octreeOpacity = 0.5f;
-    simulationState.octreeColorByMass = true;
-
-    if (config.algorithm == 5 || config.algorithm == 7)
-    {
-        simulationState.dynamicReordering.store(config.dynamicReordering);
-        simulationState.metricsWindowSize.store(config.metricsWindowSize);
-    }
-
+    // Start simulation thread
     SimulationThread simulationThread(&simulationState);
-    simulationThread.start();
-
-    std::ofstream energyOutput;
-    if (!config.energyOutput.empty())
+    
+    try
     {
-        energyOutput.open(config.energyOutput);
-        if (energyOutput.is_open())
-        {
-            energyOutput << "Step,Time,KineticEnergy,PotentialEnergy,TotalEnergy\n";
-        }
-    }
-
-    // Espera a que se inicialice el hilo de simulación
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-
-    for (int step = 0; step < config.numSteps && simulationState.running.load(); ++step)
-    {
-        if (!config.energyOutput.empty() && energyOutput.is_open())
+        simulationThread.start();
+        
+        // Wait for simulation to initialize
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        
+        // Start running the simulation
+        simulationState.running.store(true);
+        simulationState.isPaused.store(false);
+        
+        // Configure number of steps
+        int targetSteps = config.numSteps > 0 ? config.numSteps : 1000;
+        std::cout << "Running for " << targetSteps << " steps..." << std::endl;
+        
+        // Main simulation loop
+        for (int step = 0; step < targetSteps; step++)
         {
             SimulationData simData = simulationThread.getSimulationData();
-            if (simData.valid && simData.simulation)
+            if (!simData.valid || !simData.simulation)
             {
+                std::cerr << "Invalid simulation data at step " << step << std::endl;
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                continue;
+            }
+
+            try {
                 double kinetic = simData.simulation->getKineticEnergy();
                 double potential = simData.simulation->getPotentialEnergy();
                 double total = kinetic + potential;
-                energyOutput << step << "," << simulationState.lastIterationTime << "," << kinetic << "," << potential << "," << total << "\n";
+
+                // Write data for this step to the global CSV
+                globalOutputFile << "simulation," 
+                          << simulationId << ","
+                          << config.algorithm << ","
+                          << config.initialBodies << ","
+                          << config.sortType << ","
+                          << (config.useSFC ? "true" : "false") << ","
+                          << config.theta << ","
+                          << config.numThreads << ","
+                          << config.blockSize << ","
+                          << (config.dynamicReordering ? "true" : "false") << ","
+                          << config.metricsWindowSize << ","
+                          << config.randomSeed << ","
+                          << config.massDistribution << ","
+                          << step << ","
+                          << simulationState.lastIterationTime << ","
+                          << kinetic << ","
+                          << potential << ","
+                          << total << ",NA,NA,NA,NA,NA,NA,NA\n";
+                
+                globalOutputFile.flush();
+
+                if (step % 100 == 0) {
+                    std::cout << "Completed step " << step << std::endl;
+                }
+            }
+            catch (const std::exception& e) {
+                std::cerr << "Error processing step " << step << ": " << e.what() << std::endl;
+                continue;
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
+        std::cout << "Main simulation loop completed" << std::endl;
+
+        SimulationData finalSimData = simulationThread.getSimulationData();
+        if (!finalSimData.valid || !finalSimData.simulation) {
+            std::cerr << "Invalid final simulation data" << std::endl;
+        } else {
+            auto endTime = std::chrono::high_resolution_clock::now();
+            double totalTimeMs = std::chrono::duration<double, std::milli>(endTime - startTime).count();
+
+            if (config.reportMetrics)
+            {
+                try {
+                    // Get simulation metrics
+                    SimulationMetrics metrics = finalSimData.simulation->getMetrics();
+                    
+                    // Write final metrics to global CSV
+                    globalOutputFile << "final," 
+                              << simulationId << ","
+                              << config.algorithm << ","
+                              << config.initialBodies << ","
+                              << config.sortType << ","
+                              << (config.useSFC ? "true" : "false") << ","
+                              << config.theta << ","
+                              << config.numThreads << ","
+                              << config.blockSize << ","
+                              << (config.dynamicReordering ? "true" : "false") << ","
+                              << config.metricsWindowSize << ","
+                              << config.randomSeed << ","
+                              << config.massDistribution << ","
+                              << "final" << ","
+                              << totalTimeMs << ","
+                              << finalSimData.simulation->getKineticEnergy() << ","
+                              << finalSimData.simulation->getPotentialEnergy() << ","
+                              << (finalSimData.simulation->getKineticEnergy() + finalSimData.simulation->getPotentialEnergy()) << ","
+                              << metrics.forceTimeMs << ","
+                              << metrics.totalTimeMs << ","
+                              << metrics.bboxTimeMs << ","
+                              << metrics.resetTimeMs << ","
+                              << metrics.octreeTimeMs << ","
+                              << metrics.reorderTimeMs << ","
+                              << metrics.sortTimeMs << "\n";
+                              
+                    globalOutputFile.flush();
+                    
+                    // Also call reportMetrics to print to console
+                    reportMetrics(finalSimData, totalTimeMs, targetSteps, simulationId);
+                }
+                catch (const std::exception& e) {
+                    std::cerr << "Error writing final metrics: " << e.what() << std::endl;
+                }
             }
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Fatal error in simulation: " << e.what() << std::endl;
     }
 
-    if (energyOutput.is_open())
-        energyOutput.close();
+    std::cout << "Simulation complete. Results saved to: " << globalCsvFilename << std::endl;
 
-    SimulationData finalSimData = simulationThread.getSimulationData();
-    auto endTime = std::chrono::high_resolution_clock::now();
-    double totalTimeMs = std::chrono::duration<double, std::milli>(endTime - startTime).count();
-
-    if (config.reportMetrics)
-    {
-        reportMetrics(finalSimData, totalTimeMs, config.numSteps);
-    }
-
+    std::cout << "Stopping simulation thread..." << std::endl;
     simulationState.running.store(false);
     simulationThread.join();
+    std::cout << "Simulation completed." << std::endl;
 }

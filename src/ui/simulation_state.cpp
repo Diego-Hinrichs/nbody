@@ -16,32 +16,13 @@ SimulationState::SimulationState() : running(true),
                                      randomSeed(static_cast<unsigned int>(time(nullptr))),
                                      seedWasChanged(false),
                                      numBodies(1024),
-                                     zoomFactor(1.0),
-                                     offsetX(0.0),
-                                     offsetY(0.0),
-                                     sharedBodies(nullptr),
-                                     currentBodiesCount(0),
-                                     fps(0.0),
                                      lastIterationTime(0.0),
-                                     showCommandMenu(false),
-                                     selectedCommandIndex(0),
-                                     selectedParticleOption(0),
-                                     showOctree(false),
-                                     octreeMaxDepth(3),
-                                     octreeOpacity(0.5f),
-                                     octreeColorByMass(true),
                                      useDynamicReordering(false),
                                      dynamicReorderFrequency(10),
                                      reorderTimeMs(0.0f),
                                      simTimeMs(0.0f)
 {
-    snprintf(seedInputBuffer, sizeof(seedInputBuffer), "%u", randomSeed.load());
 }
 SimulationState::~SimulationState()
 {
-    if (sharedBodies != nullptr)
-    {
-        delete[] sharedBodies;
-        sharedBodies = nullptr;
-    }
 }

@@ -1,4 +1,4 @@
-#include "../../include/simulation/implementations/gpu/direct_sum.cuh"
+#include "../../../../include/simulation/implementations/gpu/direct_sum.cuh"
 #include <iostream>
 
 __global__ void DirectSumForceKernel(Body *bodies, int nBodies)

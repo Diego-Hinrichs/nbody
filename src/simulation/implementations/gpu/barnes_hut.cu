@@ -1,4 +1,4 @@
-#include "../../include/simulation/implementations/gpu/barnes_hut.cuh"
+#include "../../../../include/simulation/implementations/gpu/barnes_hut.cuh"
 
 BarnesHut::BarnesHut(
     int numBodies,
